@@ -46,17 +46,13 @@ with nav_mode[0]:
         with col3:
             angle = st.number_input("Angle (°)", 1.0, 90.0, 90.0)
         with col4:
-            # --- THE CRITICAL FIX ---
-            # Calculate maximum possible offset
+            # SAFETY LOGIC FOR SLIDER
             calculated_max = (header_od - branch_od) / 2
             
-            # If the branch is same size or bigger than header, offset is impossible.
-            # We force it to 0.0 and hide the slider to prevent the crash.
             if calculated_max <= 0.001:
                 offset = 0.0
                 st.info("Offset: 0.0 (Full Size Cut)")
             else:
-                # Only show slider if there is room to slide
                 offset = st.slider("Eccentric Offset", 0.0, float(calculated_max), 0.0, step=0.125)
 
     # --- CALCULATION ---
@@ -70,10 +66,20 @@ with nav_mode[0]:
         alpha = np.radians(angle)
         
         x = theta * r
-        term_sq = R**2 - (r*np.sin(theta) + offset)**2
+        
+        # Math Engine
+        if header_type == "Elbow":
+            term_sq = R**2 - (r*np.sin(theta) + offset)**2
+        else:
+            term_sq = R**2 - (r*np.sin(theta) + offset)**2
+        
         term_sq[term_sq < 0] = 0
-        if angle == 90: y = np.sqrt(term_sq)
-        else: y = (np.sqrt(term_sq)/np.sin(alpha)) + (r*np.cos(theta)/np.tan(alpha))
+        
+        if angle == 90:
+            y = np.sqrt(term_sq)
+        else:
+            y = (np.sqrt(term_sq)/np.sin(alpha)) + (r*np.cos(theta)/np.tan(alpha))
+        
         y = y - np.min(y)
 
         # --- OUTPUT ---
@@ -140,4 +146,38 @@ with nav_mode[1]:
     p = patches.Polygon([[0, 0], [middle_spine, 0], [middle_spine - (middle_spine-middle_throat)/2, pipe_od], [(middle_spine-middle_throat)/2, pipe_od]], closed=True, fill=True, facecolor='#eeeeee', edgecolor='black')
     ax.add_patch(p)
     ax.set_xlim(-0.5, middle_spine+0.5)
-    ax.set_ylim(-0.5, pipe_od+
+    # THIS WAS THE PROBLEM LINE:
+    ax.set_ylim(-0.5, pipe_od + 1) 
+    ax.set_aspect('equal')
+    ax.axis('off')
+    ax.text(middle_spine/2, -0.4, "Long Side", ha='center')
+    ax.text(middle_spine/2, pipe_od+0.2, "Short Side", ha='center')
+    st.pyplot(fig)
+
+# ==============================================================================
+# TAB 3: MITER MASTER
+# ==============================================================================
+with nav_mode[2]:
+    st.header("Simple Miter Cut")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        pipe_nom = st.selectbox("Pipe Size", list(pipe_schedule.keys()), index=8, key="m_size")
+        pipe_od = pipe_schedule[pipe_nom]
+    with col2:
+        cut_angle = st.number_input("Desired Cut Angle", 1.0, 89.0, 45.0)
+
+    cut_height = np.tan(np.radians(cut_angle)) * pipe_od
+    
+    st.metric("Cutback Measurement", f"{round(cut_height, 3)}\"")
+    st.caption("Measure this distance from the cut line.")
+    
+    fig, ax = plt.subplots(figsize=(6, 2))
+    ax.plot([0, pipe_od], [0, 0], color='black')
+    ax.plot([0, pipe_od], [cut_height, 0], color='red', lw=3)
+    ax.plot([0, 0], [0, cut_height], color='black', linestyle='--')
+    ax.text(-0.1, cut_height/2, f"{round(cut_height, 3)}\"", ha='right', color='red')
+    ax.set_xlim(-1, pipe_od+0.5)
+    ax.set_ylim(-0.5, cut_height+0.5)
+    ax.axis('off')
+    st.pyplot(fig)

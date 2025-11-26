@@ -20,7 +20,8 @@ st.set_page_config(page_title="Fishmouth Pro", page_icon="🐟")
 
 if 'step' not in st.session_state: st.session_state.step = 1
 if 'tool' not in st.session_state: st.session_state.tool = None
-if 'px_per_inch' not in st.session_state: st.session_state.px_per_inch = 96
+# Default DPI (Pixels Per Inch) - Will be calibrated by user
+if 'px_per_inch' not in st.session_state: st.session_state.px_per_inch = 96 
 
 def reset():
     st.session_state.step = 1
@@ -45,54 +46,43 @@ def draw_concept_visual(mode, h_od, b_od, offset=0):
         ax.set_xlim(-h_od/1.4, h_od/1.4); ax.set_ylim(-h_od/1.4, h_od/1.4)
     return fig
 
-def draw_install_guide():
-    fig, ax = plt.subplots(figsize=(6, 3))
-    ax.add_patch(patches.Rectangle((0, 0), 6, 3, linewidth=2, edgecolor='#0e3c61', facecolor='white'))
-    ax.axhline(0.5, color='black', linestyle='--', linewidth=1.5)
-    ax.text(3, 0.3, "BASE LINE (Ring around pipe)", ha='center', fontsize=9, fontstyle='italic')
-    x_pos = np.linspace(0.5, 5.5, 9); heights = [1.0, 1.2, 1.5, 2.0, 2.5, 2.0, 1.5, 1.2, 1.0]
-    for i, x in enumerate(x_pos):
-        ax.vlines(x, 0.5, 0.5 + heights[i], color='#2196f3', lw=1)
-        ax.text(x, 0.1, f"#{i+1}", ha='center', fontsize=8, fontweight='bold')
-    ax.plot(x_pos, [h + 0.5 for h in heights], color='#b71c1c', linewidth=2)
-    ax.set_xlim(-0.5, 6.5); ax.set_ylim(0, 3.5); ax.axis('off')
+def draw_real_scale_stencil(x_vals, y_vals, ppi):
+    """Draws the curve scaled to real-world inches based on user calibration"""
+    width_inch = max(x_vals) + 1
+    height_inch = max(y_vals) + 2
+    fig, ax = plt.subplots(figsize=(width_inch, height_inch), dpi=ppi)
+    
+    ax.plot(x_vals, y_vals, color='black', lw=3)
+    ax.fill_between(x_vals, 0, y_vals, color='#e3f2fd', alpha=0.5)
+    ax.axhline(0, color='red', linestyle='--', lw=2)
+    ax.text(0.2, -0.1, "BASE LINE (Align with pipe ring)", color='red', fontsize=12, fontweight='bold')
+    
+    # Draw lines every ~1 inch for reference
+    for i in range(0, len(x_vals), 4):
+        ax.vlines(x_vals[i], 0, y_vals[i], color='black', lw=1)
+        ax.text(x_vals[i], y_vals[i]+0.1, f"{int(i/2)+1}", ha='center', fontsize=10)
+
+    ax.set_aspect('equal'); ax.axis('off')
     return fig
 
-# --- NEW: CAMERA OVERLAY PLOTTER ---
 def plot_overlay_on_image(bg_image, x_vals, y_vals, scale, x_shift, y_shift):
-    """Superimposes the Cut Line onto the user's photo"""
-    # Create figure based on image size
-    dpi = 100
-    height, width = np.array(bg_image).shape[:2]
+    dpi = 100; height, width = np.array(bg_image).shape[:2]
     figsize = width / float(dpi), height / float(dpi)
-    
     fig, ax = plt.subplots(figsize=figsize)
-    
-    # Show the photo
     ax.imshow(bg_image)
     
-    # Scale and Shift the graph data to match the photo perspective
-    # x_vals are 0 to Circumference. We need to center them.
     x_center = np.mean(x_vals)
     x_scaled = (x_vals - x_center) * scale + (width / 2) + x_shift
-    
-    # y_vals are 0 to Max Height. In images, y=0 is top. We need to flip or adjust.
-    # We assume the user took the photo "right side up"
     y_scaled = (height / 2) - (y_vals * scale) + y_shift
     
-    # Draw the Red Cut Line
-    ax.plot(x_scaled, y_scaled, color='#ff0000', linewidth=4, alpha=0.8, label="Ideal Cut")
-    
-    # Draw the Base Line (Reference)
+    ax.plot(x_scaled, y_scaled, color='#ff0000', linewidth=4, alpha=0.8)
     base_y = (height / 2) + y_shift
     ax.axhline(base_y, color='yellow', linestyle='--', linewidth=2, alpha=0.6)
-    ax.text(width/2, base_y + 20, "Base Line Alignment", color='yellow', ha='center')
-
     ax.axis('off')
     return fig
 
 # ==============================================================================
-# STEP 1: HOME
+# APP FLOW
 # ==============================================================================
 if st.session_state.step == 1:
     st.title("🐟 Fishmouth Pro")
@@ -103,11 +93,8 @@ if st.session_state.step == 1:
         if st.button("🦞 Segmented Elbow"): st.session_state.tool = "Lobster"; st.session_state.step = 2; st.rerun()
     with c2:
         if st.button("📐 Simple Miter"): st.session_state.tool = "Miter"; st.session_state.step = 2; st.rerun()
-        if st.button("❓ Instructions"): st.session_state.tool = "Help"; st.session_state.step = 2; st.rerun()
+        if st.button("❓ Help"): st.session_state.tool = "Help"; st.session_state.step = 2; st.rerun()
 
-# ==============================================================================
-# STEP 2: SETUP
-# ==============================================================================
 elif st.session_state.step == 2:
     if st.button("← Back"): reset(); st.rerun()
     
@@ -139,7 +126,6 @@ elif st.session_state.step == 2:
             st.session_state.inputs = {"h_nom": h_nom, "b_nom": b_nom, "h_type": h_type, "angle": angle, "offset": offset, "h_od": h_od, "b_od": b_od}
             st.session_state.step = 3; st.rerun()
 
-    # (Other tools abbreviated)
     elif st.session_state.tool == "Lobster":
          st.markdown('<p class="big-text">🦞 Lobster Setup</p>', unsafe_allow_html=True)
          p_nom = st.selectbox("Pipe Size", all_sizes, index=12); pieces = st.selectbox("Pieces", [3, 4, 5, 6], index=1)
@@ -152,9 +138,6 @@ elif st.session_state.step == 2:
     elif st.session_state.tool == "Help":
         st.markdown("### 📲 Add to Home Screen"); st.write("Safari: Share > Add to Home Screen"); st.write("Chrome: Menu > Add to Home screen")
 
-# ==============================================================================
-# STEP 3: RESULTS
-# ==============================================================================
 elif st.session_state.step == 3:
     if st.button("← Start Over"): reset(); st.rerun()
     
@@ -168,8 +151,8 @@ elif st.session_state.step == 3:
         else: y = (np.sqrt(term)/np.sin(alpha)) + (r*np.cos(theta)/np.tan(alpha))
         y = y - np.min(y)
 
-        # --- RESULT TABS (Includes Camera) ---
-        res_tabs = st.tabs(["✂️ Template", "📷 Camera Fit", "📏 Data"])
+        # --- THE FOUR TABS ---
+        res_tabs = st.tabs(["✂️ Template", "📷 Camera Check", "💳 Screen Stencil", "📏 Data"])
         
         with res_tabs[0]:
             st.markdown("### ✂️ Cutting Template")
@@ -180,37 +163,35 @@ elif st.session_state.step == 3:
                 ax.vlines(x[i], 0, y[i], color='black', lw=0.5); ax.plot(x[i], y[i], marker='v', color='black', markersize=4)
                 ax.text(x[i], -0.12*max(y), f"{int(i/2)+1}", ha='center', fontsize=9, fontweight='bold', bbox=dict(facecolor='white', edgecolor='#2196f3', boxstyle='circle,pad=0.2'))
             ax.set_xlim(-1, max(x)+1); ax.set_ylim(-0.25*max(y), max(y)*1.25); ax.axis('off'); st.pyplot(fig)
-            st.info("Pro Tip: Use the 'Camera Fit' tab to check your marks against a photo.")
 
         with res_tabs[1]:
-            st.markdown("### 📷 Photo Fit Check")
-            st.caption("Take a photo of your pipe. Use the sliders to overlay the Red Cut Line onto your photo to verify your marks.")
-            
-            # CAMERA INPUT
+            st.markdown("### 📷 Camera Fit Check")
+            st.caption("Take a photo of your pipe. Overlay the cut line to verify.")
             img_file = st.camera_input("Take Photo")
-            
             if img_file:
                 image = Image.open(img_file)
-                
-                # SLIDERS FOR ADJUSTMENT
                 c1, c2 = st.columns(2)
-                with c1:
-                    scale = st.slider("Zoom Graph", 10, 300, 100)
-                    x_shift = st.slider("Move Left/Right", -500, 500, 0)
-                with c2:
-                    y_shift = st.slider("Move Up/Down", -500, 500, 0)
-                
-                # DRAW OVERLAY
+                with c1: scale = st.slider("Zoom", 10, 300, 100); x_shift = st.slider("Move L/R", -500, 500, 0)
+                with c2: y_shift = st.slider("Move U/D", -500, 500, 0)
                 st.pyplot(plot_overlay_on_image(image, x, y, scale, x_shift, y_shift))
-            else:
-                st.info("Waiting for photo... (Allow camera access)")
 
         with res_tabs[2]:
+            st.markdown("### 💳 1:1 Screen Stencil")
+            st.warning("Use this to trace directly on the pipe.")
+            st.markdown("#### 1. Calibrate Size")
+            st.caption("Place Credit Card (3.37\") on screen. Adjust slider to match width.")
+            cal_factor = st.slider("Calibration", 50, 200, st.session_state.px_per_inch, key="ppi")
+            st.session_state.px_per_inch = cal_factor
+            st.markdown(f'<div style="width:{3.37*cal_factor}px; height:30px; background:#2196f3; color:white; text-align:center; border-radius:4px;">CREDIT CARD WIDTH</div>', unsafe_allow_html=True)
+            st.markdown("#### 2. Trace Pattern")
+            st.pyplot(draw_real_scale_stencil(x, y, cal_factor))
+
+        with res_tabs[3]:
             df = pd.DataFrame({"Line": [int(i/2)+1 for i in range(0, 33, 2)], "Decimal": [round(y[i], 3) for i in range(0, 33, 2)], "Fraction": [f"{int(y[i])} {int((y[i]%1)*16)}/16" for i in range(0, 33, 2)]})
             st.dataframe(df, hide_index=True, use_container_width=True)
 
     elif st.session_state.tool == "Lobster":
-        # (Lobster Logic)
+        # (Lobster Results)
         d = st.session_state.inputs; p_od = pipe_schedule[d['p_nom']]; num_welds = d['pieces'] - 1
         miter_angle = d['bend'] / (num_welds * 2); long = 2 * np.tan(np.radians(miter_angle)) * (d['rad'] + p_od/2); short = 2 * np.tan(np.radians(miter_angle)) * (d['rad'] - p_od/2)
         st.success(f"Cut {d['pieces']-2} middle pieces."); c1, c2, c3 = st.columns(3)

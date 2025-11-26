@@ -65,9 +65,9 @@ def plot_overlay_on_image(bg_image, x_vals, y_vals, scale, x_shift, y_shift):
     x_center = np.mean(x_vals)
     x_scaled = (x_vals - x_center) * scale + (width / 2) + x_shift
     y_scaled = (height / 2) - (y_vals * scale) + y_shift
-    ax.plot(x_scaled, y_scaled, color='#ff0000', linewidth=5, alpha=0.8) # Red Cut Line
+    ax.plot(x_scaled, y_scaled, color='#ff0000', linewidth=5, alpha=0.8) 
     base_y = (height / 2) + y_shift
-    ax.axhline(base_y, color='yellow', linestyle='--', linewidth=2, alpha=0.8) # Base Line
+    ax.axhline(base_y, color='yellow', linestyle='--', linewidth=2, alpha=0.8)
     ax.axis('off')
     return fig
 
@@ -119,7 +119,6 @@ elif st.session_state.step == 2:
             st.session_state.inputs = {"h_nom": h_nom, "b_nom": b_nom, "h_type": h_type, "angle": angle, "offset": offset, "h_od": h_od, "b_od": b_od}
             st.session_state.step = 3; st.rerun()
 
-    # (Other Tools)
     elif st.session_state.tool == "Lobster":
          st.markdown('<p class="big-text">🦞 Lobster Setup</p>', unsafe_allow_html=True)
          p_nom = st.selectbox("Pipe Size", all_sizes, index=12); pieces = st.selectbox("Pieces", [3, 4, 5, 6], index=1)
@@ -147,4 +146,49 @@ elif st.session_state.step == 3:
         y = y - np.min(y)
 
         # --- TABS ---
-        res_tabs = st.tabs(["✂️ Template", "📷 Camera Fit", "
+        res_tabs = st.tabs(["✂️ Template", "📷 Camera Fit", "📏 Data"])
+        
+        with res_tabs[0]:
+            st.pyplot(draw_install_guide()) 
+            st.markdown(f"""
+            <div class="instruction-box">
+                <b>1. Base Line:</b> Mark a ring around your {d['b_nom']}" pipe.<br>
+                <b>2. Divide:</b> Mark 16 equal spaces.<br>
+                <b>3. Measure UP:</b> Use the table in the 'Data' tab.
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown("### ✂️ Template Pattern")
+            fig, ax = plt.subplots(figsize=(8, 4))
+            ax.fill_between(x, y, max(y)*1.15, color='#ffcdd2', label="Waste"); ax.fill_between(x, 0, y, color='#e1f5fe', label="Pipe")
+            ax.plot(x, y, color='#b71c1c', lw=3); ax.axhline(0, color='black', lw=2)
+            for i in range(0, 33, 4):
+                ax.vlines(x[i], 0, y[i], color='black', lw=0.5); ax.plot(x[i], y[i], marker='v', color='black', markersize=4)
+                ax.text(x[i], -0.12*max(y), f"{int(i/2)+1}", ha='center', fontsize=9, fontweight='bold', bbox=dict(facecolor='white', edgecolor='#2196f3', boxstyle='circle,pad=0.2'))
+            ax.set_xlim(-1, max(x)+1); ax.set_ylim(-0.25*max(y), max(y)*1.25); ax.axis('off'); st.pyplot(fig)
+
+        with res_tabs[1]:
+            st.markdown("### 📷 Photo Fit Check")
+            st.caption("Take a photo of your pipe. Overlay the **Red Cut Line** to verify your marks.")
+            img_file = st.camera_input("Take Photo")
+            if img_file:
+                image = Image.open(img_file)
+                st.write("**Adjust Overlay:**")
+                c1, c2 = st.columns(2)
+                with c1: scale = st.slider("Zoom", 10, 300, 100); x_shift = st.slider("Move Left/Right", -500, 500, 0)
+                with c2: y_shift = st.slider("Move Up/Down", -500, 500, 0)
+                st.pyplot(plot_overlay_on_image(image, x, y, scale, x_shift, y_shift))
+
+        with res_tabs[2]:
+            st.markdown("### 📏 Ordinate Measures")
+            df = pd.DataFrame({"Line": [int(i/2)+1 for i in range(0, 33, 2)], "Decimal": [round(y[i], 3) for i in range(0, 33, 2)], "Fraction": [f"{int(y[i])} {int((y[i]%1)*16)}/16" for i in range(0, 33, 2)]})
+            st.dataframe(df, hide_index=True, use_container_width=True)
+
+    elif st.session_state.tool == "Lobster":
+        d = st.session_state.inputs; p_od = pipe_schedule[d['p_nom']]; num_welds = d['pieces'] - 1
+        miter_angle = d['bend'] / (num_welds * 2); long = 2 * np.tan(np.radians(miter_angle)) * (d['rad'] + p_od/2); short = 2 * np.tan(np.radians(miter_angle)) * (d['rad'] - p_od/2)
+        st.success(f"Cut {d['pieces']-2} middle pieces."); c1, c2, c3 = st.columns(3)
+        c1.metric("Angle", f"{round(miter_angle, 1)}°"); c2.metric("Long", f"{round(long, 3)}\""); c3.metric("Short", f"{round(short, 3)}\"")
+    elif st.session_state.tool in ["Miter", "Wye"]:
+        d = st.session_state.inputs; cut = np.tan(np.radians(d['angle'])) * pipe_schedule[d['p_nom']]
+        st.metric("Cutback", f"{round(cut, 3)}\"")

@@ -68,63 +68,83 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- ADVANCED TAPE GENERATOR ---
-def generate_advanced_tape(circumference, y_vals, tape_width_inch, mode="RULER"):
+# --- MOSAIC TAPE GENERATOR ---
+def generate_mosaic_strips(R, r, offset, angle, tape_width_inch):
     DPI = 203 # Standard Thermal DPI
-    img_width = int((circumference + 0.5) * DPI)
+    
+    # 1. Generate High-Res Curve Data
+    theta = np.linspace(0, 2*np.pi, 1000)
+    term_sq = R**2 - (r * np.sin(theta) + offset)**2
+    term_sq[term_sq < 0] = 0
+    alpha_rad = np.radians(angle)
+    
+    if angle == 90: y_raw = np.sqrt(term_sq)
+    else: y_raw = (np.sqrt(term_sq)/np.sin(alpha_rad)) + (r * np.cos(theta)/np.tan(alpha_rad))
+    
+    y_vals = y_raw - np.min(y_raw)
+    circumference = 2 * np.pi * r
+    x_vals = np.linspace(0, circumference, 1000)
+    
+    # 2. Calculate Strips
+    max_y = np.max(y_vals)
+    num_strips = math.ceil(max_y / tape_width_inch)
+    if num_strips == 0: num_strips = 1
+    
+    strips = []
+    img_width = int((circumference + 0.1) * DPI)
     img_height = int(tape_width_inch * DPI)
     
-    spacing_px = (circumference * DPI) / 16
-    
-    # --- MODE A: RULER ---
-    if mode == "RULER":
+    for s in range(num_strips):
         img = Image.new('RGB', (img_width, img_height), color='white')
         d = ImageDraw.Draw(img)
-        for i in range(17): 
-            x = int(i * spacing_px)
-            d.line([x, 0, x, img_height], fill="black", width=3)
-            val_idx = (i * 2) % 32 
-            if i == 16: val_idx = 32 
-            try: val = y_vals[val_idx]
-            except: val = y_vals[0]
-            d.text((x + 5, 10), f"#{i+1}", fill="black")
-            d.text((x + 5, img_height/2), f"{round(val,3)}\"", fill="red")
-        return [img] 
-
-    # --- MODE B: SPLIT STENCIL (MOSAIC) ---
-    elif mode == "STENCIL":
-        max_y = max(y_vals)
-        num_strips = math.ceil(max_y / tape_width_inch)
-        if num_strips == 0: num_strips = 1
         
-        strips = []
-        x_points = np.linspace(0, circumference, len(y_vals))
+        y_min_phy = s * tape_width_inch
+        y_max_phy = (s + 1) * tape_width_inch
         
-        for s in range(num_strips):
-            img = Image.new('RGB', (img_width, img_height), color='white')
-            d = ImageDraw.Draw(img)
-            y_min = s * tape_width_inch
-            y_max = (s + 1) * tape_width_inch
-            
-            d.line([0, 0, img_width, 0], fill="blue", width=1)
-            d.text((10, 5), f"STRIP #{s+1} (Align bottom edge to {y_min}\")", fill="blue")
-            
-            points = []
-            for i in range(len(x_points)):
-                phy_x = x_points[i]; phy_y = y_vals[i]
-                if phy_y >= (y_min - 0.05) and phy_y <= (y_max + 0.05):
-                    px_x = int(phy_x * DPI)
-                    rel_y = phy_y - y_min
-                    px_y = int(img_height - (rel_y * DPI))
-                    points.append((px_x, px_y))
-                else:
-                    if len(points) > 1: d.line(points, fill="black", width=5)
-                    points = []
-            if len(points) > 1: d.line(points, fill="black", width=5)
-            strips.append(img)
-        return strips
+        # Guide Lines
+        label = f"STRIP #{s+1} (Bottom)" if s == 0 else f"STRIP #{s+1} (Stack on #{s})"
+        d.text((10, 5), label, fill="blue")
+        d.line([0, 0, img_width, 0], fill="blue", width=1) # Top edge for alignment
+        
+        # Draw Curve Segment
+        points_to_draw = []
+        for i in range(len(x_vals)):
+            phy_x = x_vals[i]; phy_y = y_vals[i]
+            if phy_y >= (y_min_phy - 0.05) and phy_y <= (y_max_phy + 0.05):
+                px_x = int(phy_x * DPI)
+                # Invert Y for image coords
+                rel_y = phy_y - y_min_phy
+                px_y = int(img_height - (rel_y * DPI))
+                points_to_draw.append((px_x, px_y))
+            else:
+                if len(points_to_draw) > 1: d.line(points_to_draw, fill="black", width=5)
+                points_to_draw = []
+        if len(points_to_draw) > 1: d.line(points_to_draw, fill="black", width=5)
+        strips.append(img)
+        
+    return strips, num_strips, max_y
 
 # --- VISUAL HELPERS ---
+def draw_mosaic_guide():
+    fig, ax = plt.subplots(figsize=(6, 3))
+    rect = patches.Rectangle((0, 0), 6, 3, linewidth=2, edgecolor='#0e3c61', facecolor='#e3f2fd')
+    ax.add_patch(rect)
+    ax.text(3, 1.5, "PIPE", ha='center', color='#0e3c61', alpha=0.2, fontweight='bold', fontsize=20)
+    # Strip 1
+    rect_1 = patches.Rectangle((0, 0.5), 6, 0.5, linewidth=1, edgecolor='blue', facecolor='#fff9c4', alpha=0.9)
+    ax.add_patch(rect_1)
+    ax.text(3, 0.75, "STRIP #1 (Base)", ha='center', fontsize=8)
+    ax.plot([1, 2, 3], [0.5, 0.8, 1.0], color='black', linewidth=2)
+    # Strip 2
+    rect_2 = patches.Rectangle((0, 1.0), 6, 0.5, linewidth=1, edgecolor='blue', facecolor='#fff9c4', alpha=0.9)
+    ax.add_patch(rect_2)
+    ax.text(3, 1.25, "STRIP #2 (Stack on Top)", ha='center', fontsize=8)
+    ax.plot([3, 4, 5], [1.0, 1.2, 1.0], color='black', linewidth=2)
+    
+    ax.text(3, 0.2, "Print Strips → Stack Them → Cut on Line", ha='center', fontsize=10, fontweight='bold', color='#0e3c61')
+    ax.set_xlim(-0.5, 6.5); ax.set_ylim(0, 3.0); ax.axis('off')
+    return fig
+
 def draw_static_3d_wireframe(R, r, offset, angle_deg):
     fig = plt.figure(figsize=(6, 5)); ax = fig.add_subplot(111, projection='3d')
     h_len = r * 4.5; x = np.linspace(-h_len/2, h_len/2, 15); theta = np.linspace(0, 2*np.pi, 24)
@@ -205,19 +225,12 @@ def plot_overlay_on_image(bg_image, x_vals, y_vals, scale, x_shift, y_shift):
 # ==============================================================================
 if st.session_state.step == 1:
     st.title("🐟 Fishmouth Pro")
-    
     col_a, col_b = st.columns([1, 2])
     with col_a:
         if lottie_measure: st_lottie(lottie_measure, height=120, key="intro_anim")
         else: st.image("https://cdn-icons-png.flaticon.com/512/2942/2942076.png", width=100)
-            
     with col_b:
-        st.markdown("""
-        <div class="hero-box">
-            <b>Stop Guessing. Start Cutting.</b><br>
-            Calculate precise industrial cuts for <b>Pipe (ID)</b> or <b>Tube (OD)</b> in seconds.
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("""<div class="hero-box"><b>Stop Guessing. Start Cutting.</b><br>Calculate precise industrial cuts for <b>Pipe (ID)</b> or <b>Tube (OD)</b> in seconds.</div>""", unsafe_allow_html=True)
     
     c1, c2 = st.columns(2)
     with c1:
@@ -231,12 +244,8 @@ if st.session_state.step == 1:
         if st.button("📖 Book Guide"): st.session_state.tool = "Book"; st.session_state.step = 2; st.rerun()
         st.caption("✅ **The Manual**")
     st.divider()
-    with st.expander("🤔 Knowledge Base (The 'Why')", expanded=False):
-        st.markdown("""
-        <div class="qa-box"><div class="qa-q">Q: Why 16 lines?</div>A: It's the "Goldilocks" curve—smooth enough to fit tight, not too many to mark.</div>
-        <div class="qa-box"><div class="qa-q">Q: What is "Eccentric"?</div>A: Offset to the side (not centered).</div>
-        <div class="qa-box"><div class="qa-q">Q: How do I use the "Smart Tape"?</div>A: Use any cheap Bluetooth thermal printer. If you have a 4-inch printer (like a Phomemo M04S), it prints one perfect stencil. If you have a small printer, it prints stacking strips.</div>
-        """, unsafe_allow_html=True)
+    with st.expander("🤔 Knowledge Base", expanded=False):
+        st.markdown("""<div class="qa-box"><div class="qa-q">Q: Why 16 lines?</div>A: It's the "Goldilocks" curve—smooth enough to fit tight, not too many to mark.</div><div class="qa-box"><div class="qa-q">Q: How do I use the "Smart Tape"?</div>A: Use any cheap Bluetooth thermal printer. If the cut is deep, check <b>"Force Split Stencil"</b> to print stackable strips.</div>""", unsafe_allow_html=True)
 
 # ==============================================================================
 # STEP 2: MEASURE
@@ -273,3 +282,97 @@ elif st.session_state.step == 2:
             if max_off <= 0.001: st.slider("Offset (Locked)", 0.0, 1.0, 0.0, disabled=True); st.caption("🔒 Branch ≥ Header")
             else: offset = st.slider("Eccentric Offset", 0.0, max_off, 0.0, step=0.125)
         with c_draw: st.pyplot(draw_concept_visual("ECCENTRIC", h_od, b_od, offset))
+        st.divider()
+        if st.button("🚀 Calculate"): st.session_state.inputs = {"h_nom": h_nom, "b_nom": b_nom, "h_type": h_type, "angle": angle, "offset": offset, "h_od": h_od, "b_od": b_od}; st.session_state.step = 3; st.rerun()
+
+    elif st.session_state.tool == "Lobster":
+         p_nom = st.selectbox("Pipe Size", all_sizes, index=12); 
+         if p_nom=="Custom Size": p_od = st.number_input("OD", 0.1, 100.0, 4.5)
+         else: p_od = pipe_schedule[p_nom]
+         pieces = st.selectbox("Pieces", [3, 4, 5, 6], index=1); bend = st.number_input("Angle", 90); rad = st.number_input("Radius", value=1.5 * p_od)
+         if st.button("Calculate"): st.session_state.inputs = {"p_nom": p_nom, "pieces": pieces, "bend": bend, "rad": rad, "p_od": p_od}; st.session_state.step = 3; st.rerun()
+    elif st.session_state.tool in ["Miter", "Wye"]:
+         p_nom = st.selectbox("Pipe Size", all_sizes, index=8); 
+         if p_nom=="Custom Size": p_od = st.number_input("OD", 0.1, 100.0, 4.5)
+         else: p_od = pipe_schedule[p_nom]
+         angle = st.number_input("Angle", 45.0)
+         if st.button("Calculate"): st.session_state.inputs = {"p_nom": p_nom, "angle": angle, "p_od": p_od}; st.session_state.step = 3; st.rerun()
+
+# ==============================================================================
+# STEP 3: RESULTS
+# ==============================================================================
+elif st.session_state.step == 3:
+    if st.button("← Start Over"): reset(); st.rerun()
+    st.markdown('<p class="step-header">3. Layout & Mark</p>', unsafe_allow_html=True)
+    st.progress(100)
+    
+    if st.session_state.tool == "Fishmouth":
+        d = st.session_state.inputs
+        R, r = d['h_od']/2, d['b_od']/2
+        if r >= R and d['offset'] == 0: r = R - 0.001
+        theta = np.linspace(0, 2*np.pi, 65); alpha = np.radians(d['angle']); x = theta * r
+        term = R**2 - (r*np.sin(theta) + d['offset'])**2; term[term<0] = 0
+        if d['angle'] == 90: y = np.sqrt(term)
+        else: y = (np.sqrt(term)/np.sin(alpha)) + (r*np.cos(theta)/np.tan(alpha))
+        y_final = y - np.min(y)
+
+        res_tabs = st.tabs(["🖨️ Smart Tape", "🔨 Mark", "🌐 3D", "📏 Data", "📷 Camera"])
+        
+        with res_tabs[0]:
+            c_anim, c_text = st.columns([1, 3])
+            with c_anim: 
+                if lottie_print: st_lottie(lottie_print, height=80, key="print_anim")
+            with c_text: st.markdown(f"""<div class="instruction-box"><b>The Mosaic Stencil:</b><br>If curve is too deep, use the 'Split Stencil' box to create stackable strips.</div>""", unsafe_allow_html=True)
+            
+            st.pyplot(draw_mosaic_guide()) # GUIDE
+            
+            # --- MOSAIC LOGIC ---
+            tape_width = st.select_slider("Printer Tape Width:", options=[0.5, 1.0, 1.5, 2.0, 4.0], value=0.5)
+            force_split = st.checkbox("Force Split Stencil (Multi-Strip)", help="Split the curve into multiple stackable strips")
+            
+            strips, num_strips, max_h = generate_mosaic_strips(R, r, d['offset'], d['angle'], tape_width)
+            
+            # Display strips
+            st.write(f"**Cut Height:** {round(max_h, 2)}\" | **Strips Required:** {num_strips}")
+            
+            for i, img in enumerate(strips):
+                st.write(f"**Strip #{i+1}**")
+                buf = io.BytesIO()
+                img.save(buf, format='PNG')
+                st.image(img, caption=f"Strip {i+1}")
+                st.download_button(f"📥 Download Strip {i+1}", buf.getvalue(), file_name=f"strip_{i+1}.png", mime="image/png")
+
+        with res_tabs[1]:
+            st.markdown(f"""<div class="instruction-box"><b>Manual Marking Guide:</b></div>""", unsafe_allow_html=True)
+            st.pyplot(draw_markup_guide())
+            st.write("1. **Base Line:** Draw a straight ring around your pipe.")
+            st.write("2. **Divide:** Fold your pipe wrap to split the ring into 16 equal parts.")
+            st.write("3. **Measure:** Measure UP from the line using the 'Data' tab numbers.")
+
+        with res_tabs[2]:
+            st.write("##### 3D Visualization")
+            st.pyplot(draw_static_3d_wireframe(R, r, d['offset'], d['angle']))
+
+        with res_tabs[3]:
+            st.write("##### Measure UP from Base Line:")
+            indices = np.linspace(0, 64, 17, dtype=int)
+            df = pd.DataFrame({"Line #": range(1, 18), "Decimal": [round(y_final[i], 3) for i in indices], "Fraction (Approx)": [f"{int(y_final[i])} {int((y_final[i]%1)*16)}/16" for i in indices]})
+            st.dataframe(df, hide_index=True, use_container_width=True, height=600)
+
+        with res_tabs[4]:
+            st.info("Take a photo of your marked pipe to verify the curve.")
+            img_file = st.camera_input("Take Photo")
+            if img_file:
+                image = Image.open(img_file); c1, c2 = st.columns(2)
+                with c1: scale = st.slider("Zoom", 10, 300, 100); x_shift = st.slider("Move L/R", -500, 500, 0)
+                with c2: y_shift = st.slider("Move U/D", -500, 500, 0)
+                st.pyplot(plot_overlay_on_image(image, x, y_final, scale, x_shift, y_shift))
+
+    elif st.session_state.tool == "Lobster":
+        d = st.session_state.inputs; p_od = d.get('p_od', pipe_schedule[d['p_nom']]); num_welds = d['pieces'] - 1
+        miter_angle = d['bend'] / (num_welds * 2); long = 2 * np.tan(np.radians(miter_angle)) * (d['rad'] + p_od/2); short = 2 * np.tan(np.radians(miter_angle)) * (d['rad'] - p_od/2)
+        st.success(f"Cut {d['pieces']-2} middle pieces."); c1, c2, c3 = st.columns(3)
+        c1.metric("Angle", f"{round(miter_angle, 1)}°"); c2.metric("Long", f"{round(long, 3)}\""); c3.metric("Short", f"{round(short, 3)}\"")
+    elif st.session_state.tool in ["Miter", "Wye"]:
+        d = st.session_state.inputs; p_od = d.get('p_od', pipe_schedule[d['p_nom']]); cut = np.tan(np.radians(d['angle'])) * p_od
+        st.metric("Cutback", f"{round(cut, 3)}\"")

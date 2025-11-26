@@ -30,18 +30,15 @@ def reset():
     st.session_state.step = 1
     st.session_state.tool = None
 
-# --- ANIMATION LOADER (WITH SAFETY) ---
-@st.cache_data # Cache this so it doesn't redownload every click
+# --- ANIMATION LOADER ---
+@st.cache_data
 def load_lottieurl(url):
     try:
         r = requests.get(url)
-        if r.status_code != 200:
-            return None
+        if r.status_code != 200: return None
         return r.json()
-    except:
-        return None
+    except: return None
 
-# Load Assets (Professional Construction Animations)
 lottie_measure = load_lottieurl("https://lottie.host/5a806554-0797-4563-937a-0693296634d4/Q9y3a8g8tC.json")
 lottie_print = load_lottieurl("https://lottie.host/9529963a-0202-4662-977b-2993d026df34/z7K1i2Q6Y5.json")
 
@@ -62,7 +59,6 @@ st.markdown("""
         border-radius: 8px; border: 1px solid #eee;
     }
     .step-header { font-size: 24px; font-weight: 800; color: #0e3c61; margin-bottom: 15px; }
-    
     .qa-box {
         background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #ddd;
         color: #333 !important;
@@ -71,7 +67,8 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- SMART TAPE GENERATOR ---
+# --- HELPER FUNCTIONS ---
+
 def generate_smart_tape(circumference_inches, y_vals):
     DPI = 203 
     img_width = int((circumference_inches + 0.5) * DPI)
@@ -79,7 +76,6 @@ def generate_smart_tape(circumference_inches, y_vals):
     img = Image.new('RGB', (img_width, img_height), color='white')
     d = ImageDraw.Draw(img)
     spacing_px = (circumference_inches * DPI) / 16
-    
     for i in range(17): 
         x = int(i * spacing_px)
         d.line([x, 0, x, img_height], fill="black", width=3)
@@ -91,7 +87,26 @@ def generate_smart_tape(circumference_inches, y_vals):
         d.text((x + 5, 50), f"{round(val,3)}\"", fill="red")
     return img
 
-# --- VISUAL HELPERS ---
+# THIS WAS THE MISSING FUNCTION:
+def draw_smart_tape_guide():
+    fig, ax = plt.subplots(figsize=(6, 3.5))
+    rect = patches.Rectangle((0, 0.5), 6, 2.5, linewidth=2, edgecolor='#0e3c61', facecolor='white')
+    ax.add_patch(rect)
+    ax.plot([0, 6], [1, 1], color='gray', linestyle=':', linewidth=1)
+    rect_tape = patches.Rectangle((0, 0.8), 6, 0.4, linewidth=1, edgecolor='black', facecolor='#fff9c4', alpha=0.9)
+    ax.add_patch(rect_tape)
+    ax.text(3, 1, "SMART TAPE (Sticker)", ha='center', va='center', fontsize=9, fontweight='bold')
+    for i in range(1, 6):
+        x = i
+        ax.plot([x, x], [0.8, 1.2], color='black', linewidth=1)
+        ax.text(x+0.1, 0.9, f"#{i}", fontsize=7)
+        h = 1.5 
+        ax.annotate('', xy=(x, 1.2 + h), xytext=(x, 1.2), arrowprops=dict(arrowstyle='->', color='#d32f2f', lw=2))
+        ax.text(x, 1.2 + h + 0.2, "Mark", ha='center', color='#d32f2f', fontsize=8)
+    ax.text(3, 0.2, "Wrap Sticker → Measure UP → Cut", ha='center', fontsize=10, fontweight='bold', color='#0e3c61')
+    ax.set_xlim(-0.5, 6.5); ax.set_ylim(0, 3.5); ax.axis('off')
+    return fig
+
 def draw_static_3d_wireframe(R, r, offset, angle_deg):
     fig = plt.figure(figsize=(6, 5)); ax = fig.add_subplot(111, projection='3d')
     h_len = r * 4.5; x = np.linspace(-h_len/2, h_len/2, 15); theta = np.linspace(0, 2*np.pi, 24)
@@ -173,21 +188,12 @@ def plot_overlay_on_image(bg_image, x_vals, y_vals, scale, x_shift, y_shift):
 if st.session_state.step == 1:
     st.title("🐟 Fishmouth Pro")
     
-    # Animation with Safety Check
     col_a, col_b = st.columns([1, 2])
     with col_a:
-        if lottie_measure:
-            st_lottie(lottie_measure, height=100, key="intro_anim")
-        else:
-            st.image("https://cdn-icons-png.flaticon.com/512/2942/2942076.png", width=80) # Fallback static icon
-            
+        if lottie_measure: st_lottie(lottie_measure, height=100, key="intro_anim")
+        else: st.image("https://cdn-icons-png.flaticon.com/512/2942/2942076.png", width=80)
     with col_b:
-        st.markdown("""
-        <div class="hero-box">
-            <h3>Stop Guessing. Start Cutting.</h3>
-            Calculate precise industrial cuts for <b>Pipe (ID)</b> or <b>Tube (OD)</b> in seconds.
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("""<div class="hero-box"><h3>Stop Guessing. Start Cutting.</h3>Calculate precise industrial cuts for <b>Pipe (ID)</b> or <b>Tube (OD)</b> in seconds.</div>""", unsafe_allow_html=True)
     
     c1, c2 = st.columns(2)
     with c1:
@@ -277,26 +283,22 @@ elif st.session_state.step == 3:
         else: y = (np.sqrt(term)/np.sin(alpha)) + (r*np.cos(theta)/np.tan(alpha))
         y_final = y - np.min(y)
 
-        res_tabs = st.tabs(["🖨️ Smart Tape", "🔨 Mark", "🌐 3D", "📷 Camera"])
+        res_tabs = st.tabs(["🖨️ Smart Tape", "🔨 Mark", "🌐 3D", "📏 Data", "📷 Camera"])
         
         with res_tabs[0]:
-            # ANIMATION 2: Printing
             c_anim, c_text = st.columns([1, 3])
             with c_anim: 
                 if lottie_print: st_lottie(lottie_print, height=80, key="print_anim")
-            with c_text: st.markdown(f"""<div class="instruction-box"><b>The "Smart Wrap" System</b><br>No folding required. The printed sticker is your ruler.</div>""", unsafe_allow_html=True)
+            with c_text: st.markdown(f"""<div class="instruction-box"><b>The "Smart Wrap" System:</b><br>No folding required. The printed sticker is your ruler.</div>""", unsafe_allow_html=True)
             
-            # 
-            st.pyplot(draw_smart_tape_guide())
+            st.pyplot(draw_smart_tape_guide()) # VISUAL GUIDE IS BACK
             
             circumference = d['b_od'] * np.pi
             tape_img_bytes = io.BytesIO()
             tape_img = generate_smart_tape(circumference, y_final)
             tape_img.save(tape_img_bytes, format='PNG')
             st.image(tape_img, caption=f"Full Length: {round(circumference, 2)}\" (Scroll right)")
-            
             st.download_button("📥 Save Image for Printer App", tape_img_bytes.getvalue(), file_name="smart_tape.png", mime="image/png")
-            st.info("💡 **Tip:** Open your Niimbot/Brother app, insert this image, and print on continuous tape.")
 
         with res_tabs[1]:
             st.markdown(f"""<div class="instruction-box"><b>Manual Marking Guide:</b></div>""", unsafe_allow_html=True)
@@ -306,10 +308,16 @@ elif st.session_state.step == 3:
             st.write("3. **Measure:** Measure UP from the line using the 'Data' tab numbers.")
 
         with res_tabs[2]:
-            st.write("##### 3D Wireframe")
+            st.write("##### 3D Visualization")
             st.pyplot(draw_static_3d_wireframe(R, r, d['offset'], d['angle']))
 
         with res_tabs[3]:
+            st.write("##### Measure UP from Base Line:")
+            indices = np.linspace(0, 64, 17, dtype=int)
+            df = pd.DataFrame({"Line #": range(1, 18), "Decimal": [round(y_final[i], 3) for i in indices], "Fraction (Approx)": [f"{int(y_final[i])} {int((y_final[i]%1)*16)}/16" for i in indices]})
+            st.dataframe(df, hide_index=True, use_container_width=True, height=600)
+
+        with res_tabs[4]:
             st.info("Take a photo of your marked pipe to verify the curve.")
             img_file = st.camera_input("Take Photo")
             if img_file:

@@ -60,95 +60,118 @@ st.markdown("""
         border-radius: 8px; border: 1px solid #eee;
     }
     .step-header { font-size: 24px; font-weight: 800; color: #0e3c61; margin-bottom: 15px; }
-    .qa-box {
-        background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #ddd;
-        color: #333 !important;
-    }
-    .qa-q { font-weight: bold; color: #d32f2f; margin-bottom: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- SMART TAPE LOGIC ---
-def generate_smart_tape(circumference_inches, y_vals, tape_width_inch, mode="AUTO"):
-    DPI = 203 # Standard Thermal Printer DPI
+# --- MOSAIC TAPE GENERATOR (THE NEW MAGIC) ---
+def generate_mosaic_strips(R, r, offset, angle, tape_width_inch):
+    DPI = 203 # Standard Thermal DPI
     
-    img_width = int((circumference_inches + 0.5) * DPI)
+    # 1. Generate High-Res Curve Data (Smoother than the graph)
+    theta = np.linspace(0, 2*np.pi, 1000) # 1000 points for smooth print
+    
+    # Math (Same as main app)
+    term_sq = R**2 - (r * np.sin(theta) + offset)**2
+    term_sq[term_sq < 0] = 0
+    alpha_rad = np.radians(angle)
+    
+    if angle == 90:
+        y_raw = np.sqrt(term_sq)
+    else:
+        y_raw = (np.sqrt(term_sq)/np.sin(alpha_rad)) + (r * np.cos(theta)/np.tan(alpha_rad))
+    
+    # Normalize
+    y_vals = y_raw - np.min(y_raw)
+    
+    # X coordinate (Unwrapped length)
+    circumference = 2 * np.pi * r
+    x_vals = np.linspace(0, circumference, 1000)
+    
+    # 2. Calculate Strips
+    max_y = np.max(y_vals)
+    num_strips = math.ceil(max_y / tape_width_inch)
+    if num_strips == 0: num_strips = 1
+    
+    strips = []
+    img_width = int((circumference + 0.1) * DPI) # Small buffer
     img_height = int(tape_width_inch * DPI)
     
-    img = Image.new('RGB', (img_width, img_height), color='white')
-    d = ImageDraw.Draw(img)
-    
-    spacing_px = (circumference_inches * DPI) / 16
-    max_cut_height = max(y_vals)
-    
-    # DECIDE MODE: Does the curve fit on the tape?
-    fits = max_cut_height < (tape_width_inch * 0.9)
-    
-    if mode == "AUTO":
-        render_mode = "LINE" if fits else "RULER"
-    else:
-        render_mode = mode
-
-    # DRAW
-    if render_mode == "LINE":
-        # Draw the actual cut curve
-        points = []
-        x_continuous = np.linspace(0, circumference_inches, len(y_vals))
-        for i in range(len(y_vals)):
-            px_x = int(x_continuous[i] * DPI)
-            # Invert Y (Image Y=0 is top)
-            # We want Base Line at Bottom (Y=Height)
-            # Cut height goes UP (Subtract from Height)
-            px_y = int(img_height - (y_vals[i] * DPI))
-            points.append((px_x, px_y))
+    for s in range(num_strips):
+        # Create blank strip
+        img = Image.new('RGB', (img_width, img_height), color='white')
+        d = ImageDraw.Draw(img)
         
-        d.line(points, fill="black", width=5)
-        d.text((10, 10), "CUT ALONG LINE", fill="black")
+        # Define physical height range for this strip
+        # Strip 0 is bottom (0 to width), Strip 1 is (width to 2*width)
+        y_min_phy = s * tape_width_inch
+        y_max_phy = (s + 1) * tape_width_inch
         
-    else:
-        # Draw the Ruler / Ticks (Fallback)
-        for i in range(17): 
-            x = int(i * spacing_px)
-            d.line([x, 0, x, img_height], fill="black", width=3)
-            val_idx = (i * 2) % 32 
-            if i == 16: val_idx = 32 
-            try: val = y_vals[val_idx]
-            except: val = y_vals[0]
+        # Draw Guide Text
+        label = f"STRIP #{s+1} (Bottom)" if s == 0 else f"STRIP #{s+1} (Stack on #{s})"
+        d.text((10, 5), label, fill="blue")
+        
+        # Draw Alignment Line (Top edge of strip)
+        d.line([0, 0, img_width, 0], fill="blue", width=1)
+        
+        # 3. Render the Curve onto this specific strip
+        # We iterate through points and draw lines if they fall in this strip
+        
+        points_to_draw = []
+        
+        for i in range(len(x_vals)):
+            phy_x = x_vals[i]
+            phy_y = y_vals[i]
             
-            # If tape is wide enough, draw big text, else small
-            y_text_pos = 10 if tape_width_inch < 0.8 else img_height/3
-            d.text((x + 5, y_text_pos), f"#{i+1}", fill="black")
-            d.text((x + 5, y_text_pos + 30), f"{round(val,3)}\"", fill="red")
-
-    return img, render_mode
+            # Does this point belong on this strip?
+            # We add a tiny overlap logic so lines connect
+            if phy_y >= (y_min_phy - 0.05) and phy_y <= (y_max_phy + 0.05):
+                
+                # Convert Physical X to Pixel X
+                px_x = int(phy_x * DPI)
+                
+                # Convert Physical Y to Pixel Y (Relative to this strip)
+                # Image Y=0 is Top. Image Y=Height is Bottom.
+                # Physical Y grows UP.
+                
+                rel_y = phy_y - y_min_phy
+                px_y = int(img_height - (rel_y * DPI))
+                
+                points_to_draw.append((px_x, px_y))
+            else:
+                # Break the line if we leave the strip (so we don't draw lines across the page)
+                if len(points_to_draw) > 1:
+                    d.line(points_to_draw, fill="black", width=5)
+                points_to_draw = []
+        
+        # Draw any remaining points
+        if len(points_to_draw) > 1:
+            d.line(points_to_draw, fill="black", width=5)
+            
+        strips.append(img)
+        
+    return strips, num_strips, max_y
 
 # --- VISUAL HELPERS ---
-def draw_smart_tape_guide():
-    fig, ax = plt.subplots(figsize=(6, 3.5))
-    rect = patches.Rectangle((0, 0.5), 6, 2.5, linewidth=2, edgecolor='#0e3c61', facecolor='#e3f2fd')
+def draw_mosaic_guide():
+    """Shows how to stack the stickers"""
+    fig, ax = plt.subplots(figsize=(6, 3))
+    rect = patches.Rectangle((0, 0), 6, 3, linewidth=2, edgecolor='#0e3c61', facecolor='#e3f2fd')
     ax.add_patch(rect)
-    ax.text(3, 1.75, "PIPE BODY", ha='center', color='#0e3c61', alpha=0.3, fontweight='bold', fontsize=20)
+    ax.text(3, 1.5, "PIPE", ha='center', color='#0e3c61', alpha=0.2, fontweight='bold', fontsize=20)
     
-    # Blue Painter's Tape Layer
-    rect_blue = patches.Rectangle((0, 0.5), 6, 1.5, linewidth=0, facecolor='#2196f3', alpha=0.3)
-    ax.add_patch(rect_blue)
-    ax.text(5, 1.5, "Blue Tape Layer", color='#1565c0', fontsize=8, ha='right')
-
-    # Smart Tape Layer
-    rect_tape = patches.Rectangle((0, 0.5), 6, 0.4, linewidth=1, edgecolor='black', facecolor='#fff9c4', alpha=1.0)
-    ax.add_patch(rect_tape)
-    ax.text(3, 0.7, "SMART TAPE (Sticker)", ha='center', va='center', fontsize=9, fontweight='bold')
+    # Strip 1
+    rect_1 = patches.Rectangle((0, 0.5), 6, 0.5, linewidth=1, edgecolor='blue', facecolor='#fff9c4', alpha=0.9)
+    ax.add_patch(rect_1)
+    ax.text(3, 0.75, "STRIP #1 (Base)", ha='center', fontsize=8)
+    ax.plot([1, 2, 3], [0.5, 0.8, 1.0], color='black', linewidth=2) # Fake curve
     
-    # Ticks
-    for i in range(1, 6):
-        x = i
-        ax.plot([x, x], [0.5, 0.9], color='black', linewidth=1)
-        h = np.random.uniform(0.5, 1.2)
-        # Measurement Arrow
-        ax.annotate('', xy=(x, 0.5 + h), xytext=(x, 0.9), arrowprops=dict(arrowstyle='->', color='#d32f2f', lw=2))
-        ax.plot(x, 0.5+h, 'ro', markersize=5)
-
-    ax.text(3, 0.2, "Stick Tape → Measure UP → Cut Blue Tape", ha='center', fontsize=10, fontweight='bold', color='#0e3c61')
+    # Strip 2
+    rect_2 = patches.Rectangle((0, 1.0), 6, 0.5, linewidth=1, edgecolor='blue', facecolor='#fff9c4', alpha=0.9)
+    ax.add_patch(rect_2)
+    ax.text(3, 1.25, "STRIP #2 (Stack on Top)", ha='center', fontsize=8)
+    ax.plot([3, 4, 5], [1.0, 1.2, 1.0], color='black', linewidth=2) # Fake curve
+    
+    ax.text(3, 0.2, "Print Strips → Stack Them → Cut on Line", ha='center', fontsize=10, fontweight='bold', color='#0e3c61')
     ax.set_xlim(-0.5, 6.5); ax.set_ylim(0, 3.0); ax.axis('off')
     return fig
 
@@ -196,27 +219,6 @@ def draw_concept_visual(mode, h_od, b_od, offset=0):
         ax.set_xlim(-h_od/1.4, h_od/1.4); ax.set_ylim(-h_od/1.4, h_od/1.4)
     return fig
 
-def draw_book_concept(concept_name):
-    fig, ax = plt.subplots(figsize=(6, 4)); ax.set_aspect('equal'); ax.axis('off')
-    if concept_name == "Page 27: Base Line":
-        ax.text(0.5, 0.9, "The Base Line", ha='center', fontweight='bold')
-        ax.add_patch(patches.Rectangle((0.2, 0.3), 0.6, 0.4, fill=False, edgecolor='black'))
-        ax.plot([0.2, 0.8], [0.4, 0.4], 'k--'); ax.text(0.85, 0.4, "Base Line", fontsize=8)
-        for i in np.linspace(0.25, 0.75, 5): ax.arrow(i, 0.4, 0, 0.15, head_width=0.02, color='blue')
-    elif concept_name == "Page 40: Eccentric Direction":
-        ax.text(0.5, 0.9, "Eccentric Direction", ha='center', fontweight='bold')
-        ax.add_patch(plt.Circle((0.2, 0.5), 0.2, fill=False)); ax.add_patch(plt.Circle((0.2, 0.6), 0.1, fill=False))
-        ax.text(0.2, 0.2, "Left Hand", ha='center'); ax.add_patch(plt.Circle((0.8, 0.5), 0.2, fill=False))
-        ax.add_patch(plt.Circle((0.8, 0.6), 0.1, fill=False)); ax.text(0.8, 0.2, "Right Hand", ha='center')
-        ax.annotate("Offset", xy=(0.2, 0.6), xytext=(0.4, 0.6), arrowprops=dict(arrowstyle='->'))
-    elif concept_name == "Page 74: Locating Laterals":
-        ax.text(0.5, 0.9, "Locating on Header", ha='center', fontweight='bold')
-        ax.plot([0, 1], [0.4, 0.4], 'k-'); ax.plot([0, 1], [0.2, 0.2], 'k-'); ax.plot([0, 1], [0.3, 0.3], 'k-.')
-        ax.plot([0.4, 0.6], [0.6, 0.4], 'b-'); ax.plot([0.5, 0.7], [0.6, 0.4], 'b-')
-        ax.annotate("", xy=(0.6, 0.3), xytext=(0.5, 0.3), arrowprops=dict(arrowstyle='<->', color='red'))
-        ax.text(0.55, 0.25, "Measure Dist.", color='red', fontsize=8, ha='center')
-    return fig
-
 def plot_overlay_on_image(bg_image, x_vals, y_vals, scale, x_shift, y_shift):
     dpi = 100; height, width = np.array(bg_image).shape[:2]; figsize = width / float(dpi), height / float(dpi)
     fig, ax = plt.subplots(figsize=figsize); ax.imshow(bg_image)
@@ -232,19 +234,12 @@ def plot_overlay_on_image(bg_image, x_vals, y_vals, scale, x_shift, y_shift):
 # ==============================================================================
 if st.session_state.step == 1:
     st.title("🐟 Fishmouth Pro")
-    
     col_a, col_b = st.columns([1, 2])
     with col_a:
         if lottie_measure: st_lottie(lottie_measure, height=120, key="intro_anim")
         else: st.image("https://cdn-icons-png.flaticon.com/512/2942/2942076.png", width=100)
-            
     with col_b:
-        st.markdown("""
-        <div class="hero-box">
-            <b>Stop Guessing. Start Cutting.</b><br>
-            Calculate precise industrial cuts for <b>Pipe (ID)</b> or <b>Tube (OD)</b> in seconds.
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("""<div class="hero-box"><b>Stop Guessing. Start Cutting.</b><br>Calculate precise industrial cuts for <b>Pipe (ID)</b> or <b>Tube (OD)</b> in seconds.</div>""", unsafe_allow_html=True)
     
     c1, c2 = st.columns(2)
     with c1:
@@ -258,12 +253,8 @@ if st.session_state.step == 1:
         if st.button("📖 Book Guide"): st.session_state.tool = "Book"; st.session_state.step = 2; st.rerun()
         st.caption("✅ **The Manual**")
     st.divider()
-    with st.expander("🤔 Knowledge Base (The 'Why')", expanded=False):
-        st.markdown("""
-        <div class="qa-box"><div class="qa-q">Q: Why 16 lines?</div>A: It's the "Goldilocks" curve—smooth enough to fit tight, not too many to mark.</div>
-        <div class="qa-box"><div class="qa-q">Q: What is "Eccentric"?</div>A: Offset to the side (not centered).</div>
-        <div class="qa-box"><div class="qa-q">Q: How do I use the "Smart Tape"?</div>A: Use any cheap Bluetooth thermal printer. Save the image in the 'Smart Tape' tab, print it, wrap it around the pipe. The ticks are your 16 points.</div>
-        """, unsafe_allow_html=True)
+    with st.expander("🤔 Knowledge Base", expanded=False):
+        st.markdown("""<div class="qa-box"><div class="qa-q">Q: Why 16 lines?</div>A: It's the "Goldilocks" curve—smooth enough to fit tight, not too many to mark.</div><div class="qa-box"><div class="qa-q">Q: How do I use the "Smart Tape"?</div>A: Use any cheap Bluetooth thermal printer. Print the strips, stack them on the pipe, and cut along the black line.</div>""", unsafe_allow_html=True)
 
 # ==============================================================================
 # STEP 2: MEASURE
@@ -272,12 +263,8 @@ elif st.session_state.step == 2:
     if st.button("← Back"): reset(); st.rerun()
     
     if st.session_state.tool == "Book":
-        st.markdown('<p class="step-header">📖 Reference Gallery</p>', unsafe_allow_html=True)
-        page = st.selectbox("Select Concept:", ["Page 27: Base Line", "Page 40: Eccentric Direction", "Page 74: Locating Laterals"])
-        st.pyplot(draw_book_concept(page))
-        if page == "Page 27: Base Line": st.write("**Rule:** Always measure UP from the Base Line.")
-        elif page == "Page 40: Eccentric Direction": st.write("**Rule:** Align lowest point with offset side.")
-        elif page == "Page 74: Locating Laterals": st.write("**Rule:** Use the center line of the header.")
+        st.markdown("### 📖 Reference Gallery"); st.info("Concepts from the Fishmouth Manual.")
+        st.pyplot(draw_markup_guide())
 
     elif st.session_state.tool == "Fishmouth":
         st.markdown('<p class="step-header">2. Configure Cut</p>', unsafe_allow_html=True)
@@ -340,29 +327,25 @@ elif st.session_state.step == 3:
             c_anim, c_text = st.columns([1, 3])
             with c_anim: 
                 if lottie_print: st_lottie(lottie_print, height=80, key="print_anim")
-            with c_text: st.markdown(f"""<div class="instruction-box"><b>The "Smart Wrap" System:</b><br>Turn your Label Maker into a custom ruler.</div>""", unsafe_allow_html=True)
+            with c_text: st.markdown(f"""<div class="instruction-box"><b>The Mosaic Stencil:</b><br>Stack the strips to build the full curve.</div>""", unsafe_allow_html=True)
             
-            # Draw the Guide
-            st.pyplot(draw_smart_tape_guide())
+            st.pyplot(draw_mosaic_guide())
             
-            # TAPE SETTINGS
-            tape_width = st.select_slider("Your Tape Width:", options=[0.5, 1.0, 1.5, 2.0], value=0.5)
+            st.write("#### Printer Settings")
+            tape_width = st.select_slider("Your Tape Width:", options=[0.5, 1.0, 1.5, 2.0, 4.0], value=0.5)
             
-            circumference = d['b_od'] * np.pi
+            # Generate Mosaic Strips
+            strips, num_strips, max_h = generate_mosaic_strips(R, r, d['offset'], d['angle'], tape_width)
             
-            # Generate and display
-            tape_img, mode = generate_smart_tape(circumference, y_final, tape_width)
+            st.success(f"Curve Height: {round(max_h, 2)}\" -> Generated {num_strips} Stackable Strips.")
             
-            buf = io.BytesIO()
-            tape_img.save(buf, format='PNG')
-            
-            if mode == "LINE":
-                st.success("✅ Curve fits on tape! Printing Cut Line.")
-            else:
-                st.info("ℹ️ Curve too tall for tape. Printing Ruler Mode (Measure UP).")
-                
-            st.image(tape_img, caption=f"Full Length: {round(circumference, 2)}\"")
-            st.download_button("📥 Download for Printer", buf.getvalue(), file_name="smart_tape.png", mime="image/png")
+            # Display and Download buttons for each strip
+            for i, img in enumerate(strips):
+                st.write(f"**Strip #{i+1}** (Start at Bottom)")
+                buf = io.BytesIO()
+                img.save(buf, format='PNG')
+                st.image(img, caption=f"Strip {i+1}")
+                st.download_button(f"📥 Download Strip {i+1}", buf.getvalue(), file_name=f"strip_{i+1}.png", mime="image/png")
 
         with res_tabs[1]:
             st.markdown(f"""<div class="instruction-box"><b>Manual Marking Guide:</b></div>""", unsafe_allow_html=True)

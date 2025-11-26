@@ -4,17 +4,18 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from mpl_toolkits.mplot3d import Axes3D
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
+import io
+import requests
+from streamlit_lottie import st_lottie # NEW: Animation Library
 
-# --- 1. THE DATABASE (Standard + Custom Support) ---
+# --- 1. THE DATABASE ---
 pipe_schedule = {
-    "Custom Size": 0.0, 
-    "1/8": 0.405, "1/4": 0.540, "3/8": 0.675, "1/2": 0.840,
-    "3/4": 1.050, "1": 1.315, "1-1/4": 1.660, "1-1/2": 1.900,
-    "2": 2.375, "2-1/2": 2.875, "3": 3.500, "3-1/2": 4.000,
-    "4": 4.500, "5": 5.563, "6": 6.625, "8": 8.625,
-    "10": 10.750, "12": 12.750, "14": 14.000, "16": 16.000,
-    "18": 18.000, "20": 20.000, "24": 24.000
+    "Custom Size": 0.0, "1/8": 0.405, "1/4": 0.540, "3/8": 0.675, "1/2": 0.840,
+    "3/4": 1.050, "1": 1.315, "1-1/4": 1.660, "1-1/2": 1.900, "2": 2.375,
+    "2-1/2": 2.875, "3": 3.500, "3-1/2": 4.000, "4": 4.500, "5": 5.563,
+    "6": 6.625, "8": 8.625, "10": 10.750, "12": 12.750, "14": 14.000,
+    "16": 16.000, "18": 18.000, "20": 20.000, "24": 24.000
 }
 all_sizes = list(pipe_schedule.keys())
 
@@ -27,7 +28,18 @@ def reset():
     st.session_state.step = 1
     st.session_state.tool = None
 
-# --- STYLING (Professional, High Contrast, Readability) ---
+# --- ANIMATION LOADER ---
+def load_lottieurl(url):
+    r = requests.get(url)
+    if r.status_code != 200: return None
+    return r.json()
+
+# Load Assets (Professional Construction Animations)
+lottie_measure = load_lottieurl("https://lottie.host/5a806554-0797-4563-937a-0693296634d4/Q9y3a8g8tC.json") # Tape Measure
+lottie_cut = load_lottieurl("https://lottie.host/c876c573-7930-492a-85f7-2d272413782e/D3X2Q2t6Wc.json") # Tools
+lottie_print = load_lottieurl("https://lottie.host/9529963a-0202-4662-977b-2993d026df34/z7K1i2Q6Y5.json") # Printer/Document
+
+# --- STYLING ---
 st.markdown("""
     <style>
     div.stButton > button:first-child { 
@@ -44,95 +56,48 @@ st.markdown("""
         border-radius: 8px; border: 1px solid #eee;
     }
     .step-header { font-size: 24px; font-weight: 800; color: #0e3c61; margin-bottom: 15px; }
-    
-    /* Q&A Styling */
-    .qa-box {
-        background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #ddd;
-        color: #333 !important;
-    }
-    .qa-q { font-weight: bold; color: #d32f2f; margin-bottom: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- STATIC 3D WIREFRAME GENERATOR (Works on ALL Phones) ---
-def draw_static_3d_wireframe(R, r, offset, angle_deg):
-    """Draws a 'Book Style' 3D Wireframe using standard Matplotlib"""
-    fig = plt.figure(figsize=(6, 5))
-    ax = fig.add_subplot(111, projection='3d')
+# --- SMART TAPE GENERATOR ---
+def generate_smart_tape(circumference_inches, y_vals):
+    DPI = 203 
+    img_width = int((circumference_inches + 0.5) * DPI)
+    img_height = int(0.6 * DPI) 
+    img = Image.new('RGB', (img_width, img_height), color='white')
+    d = ImageDraw.Draw(img)
+    spacing_px = (circumference_inches * DPI) / 16
     
-    # Header Mesh
-    h_len = r * 4.5; x = np.linspace(-h_len/2, h_len/2, 15); theta = np.linspace(0, 2*np.pi, 24)
-    theta_grid, x_grid = np.meshgrid(theta, x)
-    y_grid = R * np.cos(theta_grid); z_grid = R * np.sin(theta_grid)
-    ax.plot_wireframe(x_grid, y_grid, z_grid, color='#90a4ae', alpha=0.4, linewidth=0.5)
+    for i in range(17): 
+        x = int(i * spacing_px)
+        d.line([x, 0, x, img_height], fill="black", width=3)
+        val_idx = (i * 2) % 32 
+        if i == 16: val_idx = 32 
+        try: val = y_vals[val_idx]
+        except: val = y_vals[0]
+        d.text((x + 5, 10), f"#{i+1}", fill="black")
+        d.text((x + 5, 50), f"{round(val,3)}\"", fill="red")
+    return img
 
-    # Calculate Intersection Curve
-    cut_theta = np.linspace(0, 2*np.pi, 100)
-    b_x_surf = r * np.cos(cut_theta); b_y_surf = r * np.sin(cut_theta)
+# --- VISUAL HELPERS ---
+def draw_static_3d_wireframe(R, r, offset, angle_deg):
+    fig = plt.figure(figsize=(6, 5)); ax = fig.add_subplot(111, projection='3d')
+    h_len = r * 4.5; x = np.linspace(-h_len/2, h_len/2, 15); theta = np.linspace(0, 2*np.pi, 24)
+    theta_grid, x_grid = np.meshgrid(theta, x); y_grid = R * np.cos(theta_grid); z_grid = R * np.sin(theta_grid)
+    ax.plot_wireframe(x_grid, y_grid, z_grid, color='#90a4ae', alpha=0.4, linewidth=0.5)
+    cut_theta = np.linspace(0, 2*np.pi, 100); b_x_surf = r * np.cos(cut_theta); b_y_surf = r * np.sin(cut_theta)
     term_sq = R**2 - (r * np.sin(cut_theta) + offset)**2; term_sq[term_sq < 0] = 0
     alpha_rad = np.radians(angle_deg)
     if angle_deg == 90: cut_depth = np.sqrt(term_sq)
     else: cut_depth = (np.sqrt(term_sq)/np.sin(alpha_rad)) + (r * np.cos(cut_theta)/np.tan(alpha_rad))
-    
-    # Transform
-    tilt = np.radians(90 - angle_deg)
-    BX = b_x_surf; BY = b_y_surf + offset; BZ = -(cut_depth - np.min(cut_depth))
-    BX_rot = BX * np.cos(tilt) + BZ * np.sin(tilt)
-    BZ_rot = -BX * np.sin(tilt) + BZ * np.cos(tilt)
-    BY_rot = BY
+    tilt = np.radians(90 - angle_deg); BX = b_x_surf; BY = b_y_surf + offset; BZ = -(cut_depth - np.min(cut_depth))
+    BX_rot = BX * np.cos(tilt) + BZ * np.sin(tilt); BZ_rot = -BX * np.sin(tilt) + BZ * np.cos(tilt); BY_rot = BY
     BZ_rot = BZ_rot + R + (r if angle_deg < 90 else 0)
-
-    # Draw Cut Line & Branch
     ax.plot(BX_rot, BY_rot, BZ_rot, color='#ffc107', linewidth=4, zorder=10)
     top_z = BZ_rot + r*3
-    for i in range(0, 100, 8):
-        ax.plot([BX_rot[i], BX_rot[i]], [BY_rot[i], BY_rot[i]], [BZ_rot[i], top_z[i]], color='#ef5350', alpha=0.4, linewidth=1)
+    for i in range(0, 100, 8): ax.plot([BX_rot[i], BX_rot[i]], [BY_rot[i], BY_rot[i]], [BZ_rot[i], top_z[i]], color='#ef5350', alpha=0.4, linewidth=1)
     ax.plot(BX_rot, BY_rot, top_z, color='#ef5350', alpha=0.4)
-
-    ax.set_axis_off(); ax.view_init(elev=25, azim=-60)
-    ax.set_xlim(-h_len/2, h_len/2); ax.set_ylim(-R*1.5, R*1.5); ax.set_zlim(0, R*5)
-    return fig
-
-def draw_miter_3d(p_od, angle):
-    fig = plt.figure(figsize=(6, 4)); ax = fig.add_subplot(111, projection='3d')
-    length = p_od * 3; z = np.linspace(0, length, 10); theta = np.linspace(0, 2*np.pi, 24)
-    z_grid, theta_grid = np.meshgrid(z, theta)
-    x_grid = (p_od/2) * np.cos(theta_grid); y_grid = (p_od/2) * np.sin(theta_grid)
-    ax.plot_wireframe(x_grid, y_grid, z_grid, color='#90a4ae', alpha=0.4, linewidth=0.5)
-    
-    cut_h = np.tan(np.radians(angle)) * p_od
-    t = np.linspace(0, 2*np.pi, 100)
-    ex = (p_od/2) * np.cos(t); ey = (p_od/2) * np.sin(t)
-    ez = ey * np.tan(np.radians(angle)) + length - cut_h
-    ax.plot(ex, ey, ez, color='#d32f2f', linewidth=3)
-    ax.set_axis_off(); ax.view_init(elev=20, azim=45)
-    return fig
-
-# --- BOOK DIAGRAM REPLICATOR ---
-def draw_book_concept(concept_name):
-    fig, ax = plt.subplots(figsize=(6, 4))
-    ax.set_aspect('equal'); ax.axis('off')
-    
-    if concept_name == "Page 40: Eccentric Direction":
-        ax.text(0.5, 0.9, "Eccentric Lateral Direction", ha='center', fontweight='bold')
-        c1 = plt.Circle((0.2, 0.5), 0.2, fill=False, edgecolor='black'); c2 = plt.Circle((0.2, 0.6), 0.1, fill=False, edgecolor='black')
-        ax.add_patch(c1); ax.add_patch(c2); ax.text(0.2, 0.2, "Left Hand", ha='center')
-        c3 = plt.Circle((0.8, 0.5), 0.2, fill=False, edgecolor='black'); c4 = plt.Circle((0.8, 0.6), 0.1, fill=False, edgecolor='black')
-        ax.add_patch(c3); ax.add_patch(c4); ax.text(0.8, 0.2, "Right Hand", ha='center')
-        ax.annotate("Offset", xy=(0.2, 0.6), xytext=(0.4, 0.6), arrowprops=dict(arrowstyle='->'))
-        
-    elif concept_name == "Page 74: Locating Laterals":
-        ax.text(0.5, 0.9, "Locating on Header Pipe", ha='center', fontweight='bold')
-        ax.plot([0, 1], [0.4, 0.4], 'k-'); ax.plot([0, 1], [0.2, 0.2], 'k-'); ax.plot([0, 1], [0.3, 0.3], 'k-.')
-        ax.plot([0.4, 0.6], [0.6, 0.4], 'b-'); ax.plot([0.5, 0.7], [0.6, 0.4], 'b-')
-        ax.annotate("", xy=(0.6, 0.3), xytext=(0.5, 0.3), arrowprops=dict(arrowstyle='<->', color='red'))
-        ax.text(0.55, 0.25, "Measure this distance", color='red', fontsize=8, ha='center')
-        
-    elif concept_name == "Page 27: Base Line":
-        ax.text(0.5, 0.9, "The Base Line", ha='center', fontweight='bold')
-        rect = patches.Rectangle((0.2, 0.3), 0.6, 0.4, fill=False, edgecolor='black'); ax.add_patch(rect)
-        ax.plot([0.2, 0.8], [0.4, 0.4], 'k--'); ax.text(0.85, 0.4, "Base Line", fontsize=8)
-        for i in np.linspace(0.25, 0.75, 5): ax.arrow(i, 0.4, 0, 0.15, head_width=0.02, color='blue')
+    ax.set_axis_off(); ax.view_init(elev=25, azim=-60); ax.set_xlim(-h_len/2, h_len/2); ax.set_ylim(-R*1.5, R*1.5); ax.set_zlim(0, R*5)
     return fig
 
 def draw_markup_guide():
@@ -150,11 +115,19 @@ def draw_markup_guide():
     ax.set_xlim(-0.5, 6.5); ax.set_ylim(0, 3.5); ax.axis('off')
     return fig
 
+def draw_concept_visual(mode, h_od, b_od, offset=0):
+    fig, ax = plt.subplots(figsize=(4, 3)); ax.set_aspect('equal'); ax.axis('off')
+    if mode == "ECCENTRIC":
+        ax.add_patch(plt.Circle((0, 0), h_od/2, facecolor='white', edgecolor='#0e3c61', lw=2))
+        ax.add_patch(plt.Circle((0, offset), b_od/2, facecolor='#d9eaf7', edgecolor='#2196f3', lw=2, alpha=0.9))
+        if offset > 0: ax.annotate('', xy=(0, 0), xytext=(0, offset), arrowprops=dict(arrowstyle='<-', color='red', lw=2))
+        ax.set_xlim(-h_od/1.4, h_od/1.4); ax.set_ylim(-h_od/1.4, h_od/1.4)
+    return fig
+
 def plot_overlay_on_image(bg_image, x_vals, y_vals, scale, x_shift, y_shift):
     dpi = 100; height, width = np.array(bg_image).shape[:2]; figsize = width / float(dpi), height / float(dpi)
     fig, ax = plt.subplots(figsize=figsize); ax.imshow(bg_image)
-    x_center = np.mean(x_vals)
-    x_scaled = (x_vals - x_center) * scale + (width / 2) + x_shift
+    x_center = np.mean(x_vals); x_scaled = (x_vals - x_center) * scale + (width / 2) + x_shift
     y_scaled = (height / 2) - (y_vals * scale) + y_shift
     ax.plot(x_scaled, y_scaled, color='#ff0000', linewidth=5, alpha=0.8) 
     base_y = (height / 2) + y_shift
@@ -162,48 +135,42 @@ def plot_overlay_on_image(bg_image, x_vals, y_vals, scale, x_shift, y_shift):
     ax.axis('off'); return fig
 
 # ==============================================================================
-# STEP 1: HOME (THE SALES PITCH)
+# STEP 1: HOME
 # ==============================================================================
 if st.session_state.step == 1:
     st.title("🐟 Fishmouth Pro")
     
-    st.markdown("""
-    <div class="hero-box">
-        <h3>Stop Guessing. Start Cutting.</h3>
-        Grinders are for fixing mistakes. This app is for preventing them.<br><br>
-        Calculate precise industrial cuts for <b>Pipe (ID)</b> or <b>Tube (OD)</b> in seconds.
-    </div>
-    """, unsafe_allow_html=True)
+    # ANIMATION 1: The Hook
+    col_a, col_b = st.columns([1, 2])
+    with col_a:
+        st_lottie(lottie_measure, height=100, key="intro_anim")
+    with col_b:
+        st.markdown("""
+        <div class="hero-box">
+            <b>The "Cheat Code" for Pipe Fitting.</b><br>
+            Calculates precise cuts instantly. No math. No waste.
+        </div>
+        """, unsafe_allow_html=True)
     
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("🐟 Fishmouth / Tee"): st.session_state.tool = "Fishmouth"; st.session_state.step = 2; st.rerun()
-        st.caption("✅ **Saddles & Laterals**\nFor welding branches onto headers.")
-        
+        if st.button("🐟 Tee / Lateral"): st.session_state.tool = "Fishmouth"; st.session_state.step = 2; st.rerun()
+        st.caption("✅ **Saddles & Laterals**")
         if st.button("🦞 Lobster Back"): st.session_state.tool = "Lobster"; st.session_state.step = 2; st.rerun()
-        st.caption("✅ **Segmented Elbows**\nFor making turns when you don't have fittings.")
-        
+        st.caption("✅ **Segmented Elbows**")
     with c2:
         if st.button("📐 Miter Master"): st.session_state.tool = "Miter"; st.session_state.step = 2; st.rerun()
-        st.caption("✅ **Simple Angles**\nFor handrails, frames, and roll cages.")
-        
-        if st.button("📖 Book Guide"): st.session_state.tool = "Book"; st.session_state.step = 2; st.rerun()
-        st.caption("✅ **The Manual**\nDiagrams & Rules from the Fishmouth Book.")
-
-    st.divider()
+        st.caption("✅ **Simple Angles**")
+        if st.button("📖 The Manual"): st.session_state.tool = "Book"; st.session_state.step = 2; st.rerun()
+        st.caption("✅ **Reference Guide**")
     
-    # --- Q&A SECTION ---
-    with st.expander("🤔 Knowledge Base (The 'Why')", expanded=False):
-        st.markdown("""
-        <div class="qa-box"><div class="qa-q">Q: Why do I need 16 lines? Can't I just eyeball it?</div>
-        A: You could, if you like gaps. 16 ordinates give you the "Goldilocks" curve—smooth enough to fit tight, but not so many dots that you spend all day marking.</div>
-        <div class="qa-box"><div class="qa-q">Q: What the heck is "Eccentric"?</div>
-        A: <b>Concentric</b> means dead center. <b>Eccentric</b> means you slid the pipe to the side (offset). Use this when you need the branch flush with the side of the header (like for a drain).</div>
-        <div class="qa-box"><div class="qa-q">Q: Why can't I select a 6" branch on a 4" header?</div>
-        A: Because physics. You can't fit a bucket inside a teacup. The branch must be smaller than or equal to the header.</div>
-        <div class="qa-box"><div class="qa-q">Q: How do I use the results without a printer?</div>
-        A: 1. Wrap a strap around the pipe. 2. Fold it in half 4 times (that gives you 16 lines). 3. Mark the pipe. 4. Measure UP from your baseline. Simple.</div>
-        """, unsafe_allow_html=True)
+    st.divider()
+    with st.expander("🤓 Why can't I print directly?", expanded=False):
+        st.write("""
+        **The Tech Answer:** Web browsers (Safari/Chrome) are sandboxed for security. They cannot talk to your Bluetooth hardware directly. 
+        
+        **The Solution:** Use the **'Smart Tape'** tab. We generate the image, you save it, and your printer app (Niimbot/Phomemo) prints it perfectly. It takes 10 seconds.
+        """)
 
 # ==============================================================================
 # STEP 2: MEASURE
@@ -212,53 +179,45 @@ elif st.session_state.step == 2:
     if st.button("← Back"): reset(); st.rerun()
     
     if st.session_state.tool == "Book":
-        st.markdown('<p class="step-header">📖 Book Reference Gallery</p>', unsafe_allow_html=True)
-        st.info("Concepts and Diagrams from the Fishmouth Manual.")
-        page = st.selectbox("Select Concept:", ["Page 27: Base Line", "Page 40: Eccentric Direction", "Page 74: Locating Laterals"])
-        st.pyplot(draw_book_concept(page))
-        if page == "Page 27: Base Line": st.write("**The Rule:** Always measure UP from the Base Line. Never measure down from the pipe end.")
-        elif page == "Page 40: Eccentric Direction": st.write("**The Rule:** If the cut is Eccentric (Offset), align the lowest point of the curve with the side of the header you are offsetting towards.")
-        elif page == "Page 74: Locating Laterals": st.write("**The Rule:** Use the center line of the header. The 'Fishmouth' tool calculates the cut, but you must calculate where to place it on the header.")
+        st.markdown("### 📖 Reference Gallery"); st.info("Concepts from the Fishmouth Manual.")
+        st.pyplot(draw_markup_guide()) # Placeholder for book concepts
 
     elif st.session_state.tool == "Fishmouth":
         st.markdown('<p class="step-header">2. Configure Cut</p>', unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         with c1: 
-            h_sel = st.selectbox("Header Size", all_sizes, index=12)
+            h_sel = st.selectbox("Header", all_sizes, index=12)
             if h_sel == "Custom Size": h_od = st.number_input("Header O.D.", 0.1, 100.0, 4.5); h_nom = f"Custom {h_od}\""
             else: h_od = pipe_schedule[h_sel]; h_nom = h_sel
         with c2: 
-            b_sel = st.selectbox("Branch Size", all_sizes, index=10)
+            b_sel = st.selectbox("Branch", all_sizes, index=10)
             if b_sel == "Custom Size": b_od = st.number_input("Branch O.D.", 0.1, 100.0, 3.5); b_nom = f"Custom {b_od}\""
             else: b_od = pipe_schedule[b_sel]; b_nom = b_sel
 
         h_type = st.radio("Header Shape", ["Straight Pipe", "Elbow Fitting"], horizontal=True)
-        angle = st.number_input("Intersection Angle (°)", 1.0, 90.0, 90.0)
-
+        angle = st.number_input("Angle (°)", 1.0, 90.0, 90.0)
         max_off = max(0.0, (h_od - b_od)/2)
         c_draw, c_input = st.columns([1, 1.5])
         offset = 0.0
         with c_input:
             if max_off <= 0.001: st.slider("Offset (Locked)", 0.0, 1.0, 0.0, disabled=True); st.caption("🔒 Branch ≥ Header")
             else: offset = st.slider("Eccentric Offset", 0.0, max_off, 0.0, step=0.125)
-        with c_draw: st.pyplot(draw_static_3d_wireframe(h_od/2, b_od/2, offset, angle))
-
+        with c_draw: st.pyplot(draw_concept_visual("ECCENTRIC", h_od, b_od, offset))
         st.divider()
-        if st.button("🚀 Calculate Layout"): st.session_state.inputs = {"h_nom": h_nom, "b_nom": b_nom, "h_type": h_type, "angle": angle, "offset": offset, "h_od": h_od, "b_od": b_od}; st.session_state.step = 3; st.rerun()
+        if st.button("🚀 Calculate"): st.session_state.inputs = {"h_nom": h_nom, "b_nom": b_nom, "h_type": h_type, "angle": angle, "offset": offset, "h_od": h_od, "b_od": b_od}; st.session_state.step = 3; st.rerun()
 
     elif st.session_state.tool == "Lobster":
-         p_nom = st.selectbox("Pipe Size", all_sizes, index=12)
-         if p_nom == "Custom Size": p_od = st.number_input("Pipe O.D.", 0.1, 100.0, 4.5)
+         p_nom = st.selectbox("Pipe Size", all_sizes, index=12); 
+         if p_nom=="Custom Size": p_od = st.number_input("OD", 0.1, 100.0, 4.5)
          else: p_od = pipe_schedule[p_nom]
-         pieces = st.selectbox("Pieces", [3, 4, 5, 6], index=1); bend = st.number_input("Total Angle", 90); rad = st.number_input("Radius", value=1.5 * p_od)
-         if st.button("🚀 Calculate Layout"): st.session_state.inputs = {"p_nom": p_nom, "pieces": pieces, "bend": bend, "rad": rad, "p_od": p_od}; st.session_state.step = 3; st.rerun()
-         
+         pieces = st.selectbox("Pieces", [3, 4, 5, 6], index=1); bend = st.number_input("Angle", 90); rad = st.number_input("Radius", value=1.5 * p_od)
+         if st.button("Calculate"): st.session_state.inputs = {"p_nom": p_nom, "pieces": pieces, "bend": bend, "rad": rad, "p_od": p_od}; st.session_state.step = 3; st.rerun()
     elif st.session_state.tool in ["Miter", "Wye"]:
-         p_nom = st.selectbox("Pipe Size", all_sizes, index=8)
-         if p_nom == "Custom Size": p_od = st.number_input("Pipe O.D.", 0.1, 100.0, 4.5)
+         p_nom = st.selectbox("Pipe Size", all_sizes, index=8); 
+         if p_nom=="Custom Size": p_od = st.number_input("OD", 0.1, 100.0, 4.5)
          else: p_od = pipe_schedule[p_nom]
          angle = st.number_input("Angle", 45.0)
-         if st.button("🚀 Calculate Layout"): st.session_state.inputs = {"p_nom": p_nom, "angle": angle, "p_od": p_od}; st.session_state.step = 3; st.rerun()
+         if st.button("Calculate"): st.session_state.inputs = {"p_nom": p_nom, "angle": angle, "p_od": p_od}; st.session_state.step = 3; st.rerun()
 
 # ==============================================================================
 # STEP 3: RESULTS
@@ -278,27 +237,39 @@ elif st.session_state.step == 3:
         else: y = (np.sqrt(term)/np.sin(alpha)) + (r*np.cos(theta)/np.tan(alpha))
         y_final = y - np.min(y)
 
-        res_tabs = st.tabs(["🔨 How to Mark", "🌐 3D Wireframe", "📏 The Numbers", "📷 Camera Check"])
+        res_tabs = st.tabs(["🖨️ Smart Tape", "🔨 Mark", "🌐 3D", "📷 Camera"])
         
         with res_tabs[0]:
-            st.markdown(f"""<div class="instruction-box"><b>Step-by-Step Marking Guide:</b></div>""", unsafe_allow_html=True)
-            st.pyplot(draw_markup_guide())
-            st.markdown("""
-            1.  **Base Line:** Draw a straight ring around your pipe.
-            2.  **Divide:** Fold your pipe wrap to split the ring into 16 equal parts.
-            3.  **Measure:** Use the numbers in the **'The Numbers'** tab to mark up from the line.
-            4.  **Connect:** Connect the dots. Cut on the line.
-            """)
+            # ANIMATION 2: Printing
+            c_anim, c_text = st.columns([1, 3])
+            with c_anim: st_lottie(lottie_print, height=80, key="print_anim")
+            with c_text: st.markdown(f"""<div class="instruction-box"><b>The "Smart Wrap" System</b><br>This generates a custom ruler for your {d['b_nom']}" pipe.</div>""", unsafe_allow_html=True)
+            
+            circumference = d['b_od'] * np.pi
+            tape_img_bytes = io.BytesIO()
+            tape_img = generate_smart_tape(circumference, y_final)
+            tape_img.save(tape_img_bytes, format='PNG')
+            st.image(tape_img, caption=f"Full Length: {round(circumference, 2)}\" (Scroll right)")
+            
+            # BIG DOWNLOAD BUTTON
+            st.download_button("📥 Save Image for Printer App", tape_img_bytes.getvalue(), file_name="smart_tape.png", mime="image/png")
+            st.info("💡 **Tip:** Open your Niimbot/Brother app, insert this image, and print on continuous tape.")
 
         with res_tabs[1]:
-            st.write("##### 3D Visualization")
-            st.pyplot(draw_static_3d_wireframe(R, r, d['offset'], d['angle']))
+            st.pyplot(draw_markup_guide())
+            st.markdown("""
+            **Manual Mode:**
+            1.  **Base Line:** Draw a straight ring around your pipe.
+            2.  **Divide:** Fold your pipe wrap to split the ring into 16 equal parts.
+            3.  **Measure:** Measure UP from the line using these numbers:
+            """)
+            indices = np.linspace(0, 64, 17, dtype=int)
+            df = pd.DataFrame({"Line #": range(1, 18), "Decimal": [round(y_final[i], 3) for i in indices], "Fraction": [f"{int(y_final[i])} {int((y_final[i]%1)*16)}/16" for i in indices]})
+            st.dataframe(df, hide_index=True, use_container_width=True)
 
         with res_tabs[2]:
-            st.write("##### Measure UP from Base Line:")
-            indices = np.linspace(0, 64, 17, dtype=int)
-            df = pd.DataFrame({"Line #": range(1, 18), "Decimal": [round(y_final[i], 3) for i in indices], "Fraction (Approx)": [f"{int(y_final[i])} {int((y_final[i]%1)*16)}/16" for i in indices]})
-            st.dataframe(df, hide_index=True, use_container_width=True, height=600)
+            st.write("##### 3D Visualization")
+            st.pyplot(draw_static_3d_wireframe(R, r, d['offset'], d['angle']))
 
         with res_tabs[3]:
             st.info("Take a photo of your marked pipe to verify the curve.")
@@ -314,8 +285,6 @@ elif st.session_state.step == 3:
         miter_angle = d['bend'] / (num_welds * 2); long = 2 * np.tan(np.radians(miter_angle)) * (d['rad'] + p_od/2); short = 2 * np.tan(np.radians(miter_angle)) * (d['rad'] - p_od/2)
         st.success(f"Cut {d['pieces']-2} middle pieces."); c1, c2, c3 = st.columns(3)
         c1.metric("Angle", f"{round(miter_angle, 1)}°"); c2.metric("Long", f"{round(long, 3)}\""); c3.metric("Short", f"{round(short, 3)}\"")
-        
     elif st.session_state.tool in ["Miter", "Wye"]:
         d = st.session_state.inputs; p_od = d.get('p_od', pipe_schedule[d['p_nom']]); cut = np.tan(np.radians(d['angle'])) * p_od
         st.metric("Cutback", f"{round(cut, 3)}\"")
-        st.pyplot(draw_miter_3d(p_od, d['angle']))

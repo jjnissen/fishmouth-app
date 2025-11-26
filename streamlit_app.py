@@ -7,15 +7,17 @@ from mpl_toolkits.mplot3d import Axes3D
 from PIL import Image, ImageDraw, ImageFont
 import io
 import requests
-from streamlit_lottie import st_lottie # NEW: Animation Library
+from streamlit_lottie import st_lottie
 
 # --- 1. THE DATABASE ---
 pipe_schedule = {
-    "Custom Size": 0.0, "1/8": 0.405, "1/4": 0.540, "3/8": 0.675, "1/2": 0.840,
-    "3/4": 1.050, "1": 1.315, "1-1/4": 1.660, "1-1/2": 1.900, "2": 2.375,
-    "2-1/2": 2.875, "3": 3.500, "3-1/2": 4.000, "4": 4.500, "5": 5.563,
-    "6": 6.625, "8": 8.625, "10": 10.750, "12": 12.750, "14": 14.000,
-    "16": 16.000, "18": 18.000, "20": 20.000, "24": 24.000
+    "Custom Size": 0.0, 
+    "1/8": 0.405, "1/4": 0.540, "3/8": 0.675, "1/2": 0.840,
+    "3/4": 1.050, "1": 1.315, "1-1/4": 1.660, "1-1/2": 1.900,
+    "2": 2.375, "2-1/2": 2.875, "3": 3.500, "3-1/2": 4.000,
+    "4": 4.500, "5": 5.563, "6": 6.625, "8": 8.625,
+    "10": 10.750, "12": 12.750, "14": 14.000, "16": 16.000,
+    "18": 18.000, "20": 20.000, "24": 24.000
 }
 all_sizes = list(pipe_schedule.keys())
 
@@ -28,16 +30,20 @@ def reset():
     st.session_state.step = 1
     st.session_state.tool = None
 
-# --- ANIMATION LOADER ---
+# --- ANIMATION LOADER (WITH SAFETY) ---
+@st.cache_data # Cache this so it doesn't redownload every click
 def load_lottieurl(url):
-    r = requests.get(url)
-    if r.status_code != 200: return None
-    return r.json()
+    try:
+        r = requests.get(url)
+        if r.status_code != 200:
+            return None
+        return r.json()
+    except:
+        return None
 
 # Load Assets (Professional Construction Animations)
-lottie_measure = load_lottieurl("https://lottie.host/5a806554-0797-4563-937a-0693296634d4/Q9y3a8g8tC.json") # Tape Measure
-lottie_cut = load_lottieurl("https://lottie.host/c876c573-7930-492a-85f7-2d272413782e/D3X2Q2t6Wc.json") # Tools
-lottie_print = load_lottieurl("https://lottie.host/9529963a-0202-4662-977b-2993d026df34/z7K1i2Q6Y5.json") # Printer/Document
+lottie_measure = load_lottieurl("https://lottie.host/5a806554-0797-4563-937a-0693296634d4/Q9y3a8g8tC.json")
+lottie_print = load_lottieurl("https://lottie.host/9529963a-0202-4662-977b-2993d026df34/z7K1i2Q6Y5.json")
 
 # --- STYLING ---
 st.markdown("""
@@ -56,6 +62,12 @@ st.markdown("""
         border-radius: 8px; border: 1px solid #eee;
     }
     .step-header { font-size: 24px; font-weight: 800; color: #0e3c61; margin-bottom: 15px; }
+    
+    .qa-box {
+        background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #ddd;
+        color: #333 !important;
+    }
+    .qa-q { font-weight: bold; color: #d32f2f; margin-bottom: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -124,6 +136,27 @@ def draw_concept_visual(mode, h_od, b_od, offset=0):
         ax.set_xlim(-h_od/1.4, h_od/1.4); ax.set_ylim(-h_od/1.4, h_od/1.4)
     return fig
 
+def draw_book_concept(concept_name):
+    fig, ax = plt.subplots(figsize=(6, 4)); ax.set_aspect('equal'); ax.axis('off')
+    if concept_name == "Page 27: Base Line":
+        ax.text(0.5, 0.9, "The Base Line", ha='center', fontweight='bold')
+        ax.add_patch(patches.Rectangle((0.2, 0.3), 0.6, 0.4, fill=False, edgecolor='black'))
+        ax.plot([0.2, 0.8], [0.4, 0.4], 'k--'); ax.text(0.85, 0.4, "Base Line", fontsize=8)
+        for i in np.linspace(0.25, 0.75, 5): ax.arrow(i, 0.4, 0, 0.15, head_width=0.02, color='blue')
+    elif concept_name == "Page 40: Eccentric Direction":
+        ax.text(0.5, 0.9, "Eccentric Direction", ha='center', fontweight='bold')
+        ax.add_patch(plt.Circle((0.2, 0.5), 0.2, fill=False)); ax.add_patch(plt.Circle((0.2, 0.6), 0.1, fill=False))
+        ax.text(0.2, 0.2, "Left Hand", ha='center'); ax.add_patch(plt.Circle((0.8, 0.5), 0.2, fill=False))
+        ax.add_patch(plt.Circle((0.8, 0.6), 0.1, fill=False)); ax.text(0.8, 0.2, "Right Hand", ha='center')
+        ax.annotate("Offset", xy=(0.2, 0.6), xytext=(0.4, 0.6), arrowprops=dict(arrowstyle='->'))
+    elif concept_name == "Page 74: Locating Laterals":
+        ax.text(0.5, 0.9, "Locating on Header", ha='center', fontweight='bold')
+        ax.plot([0, 1], [0.4, 0.4], 'k-'); ax.plot([0, 1], [0.2, 0.2], 'k-'); ax.plot([0, 1], [0.3, 0.3], 'k-.')
+        ax.plot([0.4, 0.6], [0.6, 0.4], 'b-'); ax.plot([0.5, 0.7], [0.6, 0.4], 'b-')
+        ax.annotate("", xy=(0.6, 0.3), xytext=(0.5, 0.3), arrowprops=dict(arrowstyle='<->', color='red'))
+        ax.text(0.55, 0.25, "Measure Dist.", color='red', fontsize=8, ha='center')
+    return fig
+
 def plot_overlay_on_image(bg_image, x_vals, y_vals, scale, x_shift, y_shift):
     dpi = 100; height, width = np.array(bg_image).shape[:2]; figsize = width / float(dpi), height / float(dpi)
     fig, ax = plt.subplots(figsize=figsize); ax.imshow(bg_image)
@@ -140,37 +173,40 @@ def plot_overlay_on_image(bg_image, x_vals, y_vals, scale, x_shift, y_shift):
 if st.session_state.step == 1:
     st.title("🐟 Fishmouth Pro")
     
-    # ANIMATION 1: The Hook
+    # Animation with Safety Check
     col_a, col_b = st.columns([1, 2])
     with col_a:
-        st_lottie(lottie_measure, height=100, key="intro_anim")
+        if lottie_measure:
+            st_lottie(lottie_measure, height=100, key="intro_anim")
+        else:
+            st.image("https://cdn-icons-png.flaticon.com/512/2942/2942076.png", width=80) # Fallback static icon
+            
     with col_b:
         st.markdown("""
         <div class="hero-box">
-            <b>The "Cheat Code" for Pipe Fitting.</b><br>
-            Calculates precise cuts instantly. No math. No waste.
+            <h3>Stop Guessing. Start Cutting.</h3>
+            Calculate precise industrial cuts for <b>Pipe (ID)</b> or <b>Tube (OD)</b> in seconds.
         </div>
         """, unsafe_allow_html=True)
     
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("🐟 Tee / Lateral"): st.session_state.tool = "Fishmouth"; st.session_state.step = 2; st.rerun()
+        if st.button("🐟 Fishmouth / Tee"): st.session_state.tool = "Fishmouth"; st.session_state.step = 2; st.rerun()
         st.caption("✅ **Saddles & Laterals**")
         if st.button("🦞 Lobster Back"): st.session_state.tool = "Lobster"; st.session_state.step = 2; st.rerun()
         st.caption("✅ **Segmented Elbows**")
     with c2:
         if st.button("📐 Miter Master"): st.session_state.tool = "Miter"; st.session_state.step = 2; st.rerun()
         st.caption("✅ **Simple Angles**")
-        if st.button("📖 The Manual"): st.session_state.tool = "Book"; st.session_state.step = 2; st.rerun()
-        st.caption("✅ **Reference Guide**")
-    
+        if st.button("📖 Book Guide"): st.session_state.tool = "Book"; st.session_state.step = 2; st.rerun()
+        st.caption("✅ **The Manual**")
     st.divider()
-    with st.expander("🤓 Why can't I print directly?", expanded=False):
-        st.write("""
-        **The Tech Answer:** Web browsers (Safari/Chrome) are sandboxed for security. They cannot talk to your Bluetooth hardware directly. 
-        
-        **The Solution:** Use the **'Smart Tape'** tab. We generate the image, you save it, and your printer app (Niimbot/Phomemo) prints it perfectly. It takes 10 seconds.
-        """)
+    with st.expander("🤔 Knowledge Base (The 'Why')", expanded=False):
+        st.markdown("""
+        <div class="qa-box"><div class="qa-q">Q: Why 16 lines?</div>A: It's the "Goldilocks" curve—smooth enough to fit tight, not too many to mark.</div>
+        <div class="qa-box"><div class="qa-q">Q: What is "Eccentric"?</div>A: Offset to the side (not centered).</div>
+        <div class="qa-box"><div class="qa-q">Q: How do I use the "Smart Tape"?</div>A: Use any cheap Bluetooth thermal printer. Save the image in the 'Smart Tape' tab, print it, wrap it around the pipe. The ticks are your 16 points.</div>
+        """, unsafe_allow_html=True)
 
 # ==============================================================================
 # STEP 2: MEASURE
@@ -179,8 +215,12 @@ elif st.session_state.step == 2:
     if st.button("← Back"): reset(); st.rerun()
     
     if st.session_state.tool == "Book":
-        st.markdown("### 📖 Reference Gallery"); st.info("Concepts from the Fishmouth Manual.")
-        st.pyplot(draw_markup_guide()) # Placeholder for book concepts
+        st.markdown('<p class="step-header">📖 Reference Gallery</p>', unsafe_allow_html=True)
+        page = st.selectbox("Select Concept:", ["Page 27: Base Line", "Page 40: Eccentric Direction", "Page 74: Locating Laterals"])
+        st.pyplot(draw_book_concept(page))
+        if page == "Page 27: Base Line": st.write("**Rule:** Always measure UP from the Base Line.")
+        elif page == "Page 40: Eccentric Direction": st.write("**Rule:** Align lowest point with offset side.")
+        elif page == "Page 74: Locating Laterals": st.write("**Rule:** Use the center line of the header.")
 
     elif st.session_state.tool == "Fishmouth":
         st.markdown('<p class="step-header">2. Configure Cut</p>', unsafe_allow_html=True)
@@ -242,8 +282,12 @@ elif st.session_state.step == 3:
         with res_tabs[0]:
             # ANIMATION 2: Printing
             c_anim, c_text = st.columns([1, 3])
-            with c_anim: st_lottie(lottie_print, height=80, key="print_anim")
-            with c_text: st.markdown(f"""<div class="instruction-box"><b>The "Smart Wrap" System</b><br>This generates a custom ruler for your {d['b_nom']}" pipe.</div>""", unsafe_allow_html=True)
+            with c_anim: 
+                if lottie_print: st_lottie(lottie_print, height=80, key="print_anim")
+            with c_text: st.markdown(f"""<div class="instruction-box"><b>The "Smart Wrap" System</b><br>No folding required. The printed sticker is your ruler.</div>""", unsafe_allow_html=True)
+            
+            # 
+            st.pyplot(draw_smart_tape_guide())
             
             circumference = d['b_od'] * np.pi
             tape_img_bytes = io.BytesIO()
@@ -251,24 +295,18 @@ elif st.session_state.step == 3:
             tape_img.save(tape_img_bytes, format='PNG')
             st.image(tape_img, caption=f"Full Length: {round(circumference, 2)}\" (Scroll right)")
             
-            # BIG DOWNLOAD BUTTON
             st.download_button("📥 Save Image for Printer App", tape_img_bytes.getvalue(), file_name="smart_tape.png", mime="image/png")
             st.info("💡 **Tip:** Open your Niimbot/Brother app, insert this image, and print on continuous tape.")
 
         with res_tabs[1]:
+            st.markdown(f"""<div class="instruction-box"><b>Manual Marking Guide:</b></div>""", unsafe_allow_html=True)
             st.pyplot(draw_markup_guide())
-            st.markdown("""
-            **Manual Mode:**
-            1.  **Base Line:** Draw a straight ring around your pipe.
-            2.  **Divide:** Fold your pipe wrap to split the ring into 16 equal parts.
-            3.  **Measure:** Measure UP from the line using these numbers:
-            """)
-            indices = np.linspace(0, 64, 17, dtype=int)
-            df = pd.DataFrame({"Line #": range(1, 18), "Decimal": [round(y_final[i], 3) for i in indices], "Fraction": [f"{int(y_final[i])} {int((y_final[i]%1)*16)}/16" for i in indices]})
-            st.dataframe(df, hide_index=True, use_container_width=True)
+            st.write("1. **Base Line:** Draw a straight ring around your pipe.")
+            st.write("2. **Divide:** Fold your pipe wrap to split the ring into 16 equal parts.")
+            st.write("3. **Measure:** Measure UP from the line using the 'Data' tab numbers.")
 
         with res_tabs[2]:
-            st.write("##### 3D Visualization")
+            st.write("##### 3D Wireframe")
             st.pyplot(draw_static_3d_wireframe(R, r, d['offset'], d['angle']))
 
         with res_tabs[3]:

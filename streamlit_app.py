@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import requests
 from streamlit_lottie import st_lottie
+import math
 
 # --- 1. THE DATABASE ---
 pipe_schedule = {
@@ -67,44 +68,88 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- HELPER FUNCTIONS ---
-
-def generate_smart_tape(circumference_inches, y_vals):
-    DPI = 203 
+# --- SMART TAPE LOGIC ---
+def generate_smart_tape(circumference_inches, y_vals, tape_width_inch, mode="AUTO"):
+    DPI = 203 # Standard Thermal Printer DPI
+    
     img_width = int((circumference_inches + 0.5) * DPI)
-    img_height = int(0.6 * DPI) 
+    img_height = int(tape_width_inch * DPI)
+    
     img = Image.new('RGB', (img_width, img_height), color='white')
     d = ImageDraw.Draw(img)
+    
     spacing_px = (circumference_inches * DPI) / 16
-    for i in range(17): 
-        x = int(i * spacing_px)
-        d.line([x, 0, x, img_height], fill="black", width=3)
-        val_idx = (i * 2) % 32 
-        if i == 16: val_idx = 32 
-        try: val = y_vals[val_idx]
-        except: val = y_vals[0]
-        d.text((x + 5, 10), f"#{i+1}", fill="black")
-        d.text((x + 5, 50), f"{round(val,3)}\"", fill="red")
-    return img
+    max_cut_height = max(y_vals)
+    
+    # DECIDE MODE: Does the curve fit on the tape?
+    fits = max_cut_height < (tape_width_inch * 0.9)
+    
+    if mode == "AUTO":
+        render_mode = "LINE" if fits else "RULER"
+    else:
+        render_mode = mode
 
-# THIS WAS THE MISSING FUNCTION:
+    # DRAW
+    if render_mode == "LINE":
+        # Draw the actual cut curve
+        points = []
+        x_continuous = np.linspace(0, circumference_inches, len(y_vals))
+        for i in range(len(y_vals)):
+            px_x = int(x_continuous[i] * DPI)
+            # Invert Y (Image Y=0 is top)
+            # We want Base Line at Bottom (Y=Height)
+            # Cut height goes UP (Subtract from Height)
+            px_y = int(img_height - (y_vals[i] * DPI))
+            points.append((px_x, px_y))
+        
+        d.line(points, fill="black", width=5)
+        d.text((10, 10), "CUT ALONG LINE", fill="black")
+        
+    else:
+        # Draw the Ruler / Ticks (Fallback)
+        for i in range(17): 
+            x = int(i * spacing_px)
+            d.line([x, 0, x, img_height], fill="black", width=3)
+            val_idx = (i * 2) % 32 
+            if i == 16: val_idx = 32 
+            try: val = y_vals[val_idx]
+            except: val = y_vals[0]
+            
+            # If tape is wide enough, draw big text, else small
+            y_text_pos = 10 if tape_width_inch < 0.8 else img_height/3
+            d.text((x + 5, y_text_pos), f"#{i+1}", fill="black")
+            d.text((x + 5, y_text_pos + 30), f"{round(val,3)}\"", fill="red")
+
+    return img, render_mode
+
+# --- VISUAL HELPERS ---
 def draw_smart_tape_guide():
     fig, ax = plt.subplots(figsize=(6, 3.5))
-    rect = patches.Rectangle((0, 0.5), 6, 2.5, linewidth=2, edgecolor='#0e3c61', facecolor='white')
+    rect = patches.Rectangle((0, 0.5), 6, 2.5, linewidth=2, edgecolor='#0e3c61', facecolor='#e3f2fd')
     ax.add_patch(rect)
-    ax.plot([0, 6], [1, 1], color='gray', linestyle=':', linewidth=1)
-    rect_tape = patches.Rectangle((0, 0.8), 6, 0.4, linewidth=1, edgecolor='black', facecolor='#fff9c4', alpha=0.9)
+    ax.text(3, 1.75, "PIPE BODY", ha='center', color='#0e3c61', alpha=0.3, fontweight='bold', fontsize=20)
+    
+    # Blue Painter's Tape Layer
+    rect_blue = patches.Rectangle((0, 0.5), 6, 1.5, linewidth=0, facecolor='#2196f3', alpha=0.3)
+    ax.add_patch(rect_blue)
+    ax.text(5, 1.5, "Blue Tape Layer", color='#1565c0', fontsize=8, ha='right')
+
+    # Smart Tape Layer
+    rect_tape = patches.Rectangle((0, 0.5), 6, 0.4, linewidth=1, edgecolor='black', facecolor='#fff9c4', alpha=1.0)
     ax.add_patch(rect_tape)
-    ax.text(3, 1, "SMART TAPE (Sticker)", ha='center', va='center', fontsize=9, fontweight='bold')
+    ax.text(3, 0.7, "SMART TAPE (Sticker)", ha='center', va='center', fontsize=9, fontweight='bold')
+    
+    # Ticks
     for i in range(1, 6):
         x = i
-        ax.plot([x, x], [0.8, 1.2], color='black', linewidth=1)
-        ax.text(x+0.1, 0.9, f"#{i}", fontsize=7)
-        h = 1.5 
-        ax.annotate('', xy=(x, 1.2 + h), xytext=(x, 1.2), arrowprops=dict(arrowstyle='->', color='#d32f2f', lw=2))
-        ax.text(x, 1.2 + h + 0.2, "Mark", ha='center', color='#d32f2f', fontsize=8)
-    ax.text(3, 0.2, "Wrap Sticker → Measure UP → Cut", ha='center', fontsize=10, fontweight='bold', color='#0e3c61')
-    ax.set_xlim(-0.5, 6.5); ax.set_ylim(0, 3.5); ax.axis('off')
+        ax.plot([x, x], [0.5, 0.9], color='black', linewidth=1)
+        h = np.random.uniform(0.5, 1.2)
+        # Measurement Arrow
+        ax.annotate('', xy=(x, 0.5 + h), xytext=(x, 0.9), arrowprops=dict(arrowstyle='->', color='#d32f2f', lw=2))
+        ax.plot(x, 0.5+h, 'ro', markersize=5)
+
+    ax.text(3, 0.2, "Stick Tape → Measure UP → Cut Blue Tape", ha='center', fontsize=10, fontweight='bold', color='#0e3c61')
+    ax.set_xlim(-0.5, 6.5); ax.set_ylim(0, 3.0); ax.axis('off')
     return fig
 
 def draw_static_3d_wireframe(R, r, offset, angle_deg):
@@ -190,10 +235,16 @@ if st.session_state.step == 1:
     
     col_a, col_b = st.columns([1, 2])
     with col_a:
-        if lottie_measure: st_lottie(lottie_measure, height=100, key="intro_anim")
-        else: st.image("https://cdn-icons-png.flaticon.com/512/2942/2942076.png", width=80)
+        if lottie_measure: st_lottie(lottie_measure, height=120, key="intro_anim")
+        else: st.image("https://cdn-icons-png.flaticon.com/512/2942/2942076.png", width=100)
+            
     with col_b:
-        st.markdown("""<div class="hero-box"><h3>Stop Guessing. Start Cutting.</h3>Calculate precise industrial cuts for <b>Pipe (ID)</b> or <b>Tube (OD)</b> in seconds.</div>""", unsafe_allow_html=True)
+        st.markdown("""
+        <div class="hero-box">
+            <b>Stop Guessing. Start Cutting.</b><br>
+            Calculate precise industrial cuts for <b>Pipe (ID)</b> or <b>Tube (OD)</b> in seconds.
+        </div>
+        """, unsafe_allow_html=True)
     
     c1, c2 = st.columns(2)
     with c1:
@@ -289,16 +340,29 @@ elif st.session_state.step == 3:
             c_anim, c_text = st.columns([1, 3])
             with c_anim: 
                 if lottie_print: st_lottie(lottie_print, height=80, key="print_anim")
-            with c_text: st.markdown(f"""<div class="instruction-box"><b>The "Smart Wrap" System:</b><br>No folding required. The printed sticker is your ruler.</div>""", unsafe_allow_html=True)
+            with c_text: st.markdown(f"""<div class="instruction-box"><b>The "Smart Wrap" System:</b><br>Turn your Label Maker into a custom ruler.</div>""", unsafe_allow_html=True)
             
-            st.pyplot(draw_smart_tape_guide()) # VISUAL GUIDE IS BACK
+            # Draw the Guide
+            st.pyplot(draw_smart_tape_guide())
+            
+            # TAPE SETTINGS
+            tape_width = st.select_slider("Your Tape Width:", options=[0.5, 1.0, 1.5, 2.0], value=0.5)
             
             circumference = d['b_od'] * np.pi
-            tape_img_bytes = io.BytesIO()
-            tape_img = generate_smart_tape(circumference, y_final)
-            tape_img.save(tape_img_bytes, format='PNG')
-            st.image(tape_img, caption=f"Full Length: {round(circumference, 2)}\" (Scroll right)")
-            st.download_button("📥 Save Image for Printer App", tape_img_bytes.getvalue(), file_name="smart_tape.png", mime="image/png")
+            
+            # Generate and display
+            tape_img, mode = generate_smart_tape(circumference, y_final, tape_width)
+            
+            buf = io.BytesIO()
+            tape_img.save(buf, format='PNG')
+            
+            if mode == "LINE":
+                st.success("✅ Curve fits on tape! Printing Cut Line.")
+            else:
+                st.info("ℹ️ Curve too tall for tape. Printing Ruler Mode (Measure UP).")
+                
+            st.image(tape_img, caption=f"Full Length: {round(circumference, 2)}\"")
+            st.download_button("📥 Download for Printer", buf.getvalue(), file_name="smart_tape.png", mime="image/png")
 
         with res_tabs[1]:
             st.markdown(f"""<div class="instruction-box"><b>Manual Marking Guide:</b></div>""", unsafe_allow_html=True)

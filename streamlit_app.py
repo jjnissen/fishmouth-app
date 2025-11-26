@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
 # --- 1. THE DATABASE ---
-# This list is ordered from smallest to largest. We rely on this order for the logic.
+# Ordered list of pipe sizes
 pipe_schedule = {
     "1/8": 0.405, "1/4": 0.540, "3/8": 0.675, "1/2": 0.840,
     "3/4": 1.050, "1": 1.315, "1-1/4": 1.660, "1-1/2": 1.900,
@@ -15,7 +15,6 @@ pipe_schedule = {
     "18": 18.000, "20": 20.000, "24": 24.000
 }
 
-# Convert keys to a list so we can slice it later
 all_sizes = list(pipe_schedule.keys())
 
 # --- APP CONFIGURATION ---
@@ -28,7 +27,7 @@ st.write("Industrial Pipe Fabrication Calculator")
 nav_mode = st.tabs(["🐟 Fishmouth", "🦞 Lobster Back", "📐 Miter Cut"])
 
 # ==============================================================================
-# TAB 1: THE FISHMOUTH
+# TAB 1: THE FISHMOUTH (Tees & Laterals)
 # ==============================================================================
 with nav_mode[0]:
     st.header("Tee & Lateral Calculator")
@@ -38,7 +37,6 @@ with nav_mode[0]:
         col1, col2 = st.columns(2)
         with col1:
             # HEADER SELECTION
-            # Default to 4" (Index 12)
             header_nom = st.selectbox("Header Size", all_sizes, index=12, key="h_size")
             header_od = pipe_schedule[header_nom]
             header_type = st.radio("Header Shape", ["Straight", "Elbow"], horizontal=True)
@@ -46,14 +44,11 @@ with nav_mode[0]:
 
         with col2:
             # SMART BRANCH SELECTION (UX FIX)
-            # 1. Find where the selected Header is in the list
+            # Find index of header, slice list so Branch <= Header
             header_index = all_sizes.index(header_nom)
-            
-            # 2. Create a new list that ONLY includes sizes up to the Header
             valid_branches = all_sizes[:header_index+1]
             
-            # 3. Show the filtered dropdown
-            # We default to the last item (Full Size) so it feels natural
+            # Default to largest possible branch (Full Size)
             branch_nom = st.selectbox("Branch Size", valid_branches, index=len(valid_branches)-1, key="b_size")
             branch_od = pipe_schedule[branch_nom]
             st.caption(f"O.D.: {branch_od}\"")
@@ -71,9 +66,10 @@ with nav_mode[0]:
             else:
                 offset = st.slider("Eccentric Offset", 0.0, float(calculated_max), 0.0, step=0.125)
 
-    # --- CALCULATION (Error Check Removed - It is now impossible!) ---
+    # --- CALCULATION ---
+    # Lie Rule: If full size cut, reduce r slightly to prevent math error
     R, r = header_od/2, branch_od/2
-    if r >= R and offset == 0: r = R - 0.001 # Lie Rule
+    if r >= R and offset == 0: r = R - 0.001 
     
     theta = np.linspace(0, 2*np.pi, 33)
     alpha = np.radians(angle)
@@ -122,7 +118,7 @@ with nav_mode[0]:
     st.dataframe(df, hide_index=True, use_container_width=True)
 
 # ==============================================================================
-# TAB 2: LOBSTER BACK
+# TAB 2: LOBSTER BACK (Elbows)
 # ==============================================================================
 with nav_mode[1]:
     st.header("Segmented Elbow Calculator")
@@ -144,3 +140,52 @@ with nav_mode[1]:
     num_welds = pieces - 1
     miter_angle = bend_angle / (num_welds * 2)
     middle_spine = 2 * np.tan(np.radians(miter_angle)) * (radius + pipe_od/2)
+    middle_throat = 2 * np.tan(np.radians(miter_angle)) * (radius - pipe_od/2)
+
+    st.success(f"**Cut Angle:** {round(miter_angle, 1)}°")
+    
+    c1, c2 = st.columns(2)
+    c1.metric("Long Side", f"{round(middle_spine, 3)}\"")
+    c2.metric("Short Side", f"{round(middle_throat, 3)}\"")
+    
+    st.write("---")
+    st.write("**Visual Reference (Middle Piece):**")
+    
+    fig, ax = plt.subplots(figsize=(6, 2))
+    p = patches.Polygon([[0, 0], [middle_spine, 0], [middle_spine - (middle_spine-middle_throat)/2, pipe_od], [(middle_spine-middle_throat)/2, pipe_od]], closed=True, fill=True, facecolor='#eeeeee', edgecolor='black')
+    ax.add_patch(p)
+    ax.set_xlim(-0.5, middle_spine+0.5)
+    ax.set_ylim(-0.5, pipe_od + 1)
+    ax.set_aspect('equal')
+    ax.axis('off')
+    ax.text(middle_spine/2, -0.4, "Long Side", ha='center')
+    ax.text(middle_spine/2, pipe_od+0.2, "Short Side", ha='center')
+    st.pyplot(fig)
+
+# ==============================================================================
+# TAB 3: MITER MASTER (Simple Cuts)
+# ==============================================================================
+with nav_mode[2]:
+    st.header("Simple Miter Cut")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        pipe_nom = st.selectbox("Pipe Size", all_sizes, index=8, key="m_size")
+        pipe_od = pipe_schedule[pipe_nom]
+    with col2:
+        cut_angle = st.number_input("Desired Cut Angle", 1.0, 89.0, 45.0)
+
+    cut_height = np.tan(np.radians(cut_angle)) * pipe_od
+    
+    st.metric("Cutback Measurement", f"{round(cut_height, 3)}\"")
+    st.caption("Measure this distance from the cut line.")
+    
+    fig, ax = plt.subplots(figsize=(6, 2))
+    ax.plot([0, pipe_od], [0, 0], color='black')
+    ax.plot([0, pipe_od], [cut_height, 0], color='red', lw=3)
+    ax.plot([0, 0], [0, cut_height], color='black', linestyle='--')
+    ax.text(-0.1, cut_height/2, f"{round(cut_height, 3)}\"", ha='right', color='red')
+    ax.set_xlim(-1, pipe_od+0.5)
+    ax.set_ylim(-0.5, cut_height+0.5)
+    ax.axis('off')
+    st.pyplot(fig)

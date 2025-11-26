@@ -17,12 +17,26 @@ pipe_schedule = {
 # --- APP CONFIGURATION ---
 st.set_page_config(page_title="Fishmouth Pro", page_icon="🐟", layout="centered")
 
-# --- CSS FOR MOBILE OPTIMIZATION ---
+# --- CSS FIX FOR VISIBILITY ---
+# Added "color: black !important" to ensure text shows up on the gray tabs
 st.markdown("""
     <style>
     .stTabs [data-baseweb="tab-list"] { gap: 2px; }
-    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; background-color: #f0f2f6; border-radius: 4px 4px 0px 0px; gap: 1px; padding-top: 10px; padding-bottom: 10px; }
-    .stTabs [aria-selected="true"] { background-color: #ffffff; border-top: 2px solid #ff4b4b; }
+    .stTabs [data-baseweb="tab"] { 
+        height: 50px; 
+        white-space: pre-wrap; 
+        background-color: #f0f2f6; 
+        color: black !important; /* <--- FIXED: Forces black text */
+        border-radius: 4px 4px 0px 0px; 
+        gap: 1px; 
+        padding-top: 10px; 
+        padding-bottom: 10px; 
+    }
+    .stTabs [aria-selected="true"] { 
+        background-color: #ffffff; 
+        color: #ff4b4b !important;
+        border-top: 2px solid #ff4b4b; 
+    }
     h1 { font-size: 1.8rem !important; }
     </style>
 """, unsafe_allow_html=True)
@@ -90,6 +104,7 @@ if "Fishmouth" in tool_mode:
         tab1, tab2 = st.tabs(["📉 Template Graph", "🔢 The Numbers"])
         
         with tab1:
+            # Graph Plotting
             fig, ax = plt.subplots(figsize=(6, 3))
             ax.plot(x, y, 'k-', lw=2)
             ax.fill_between(x, y, color='skyblue', alpha=0.3)
@@ -151,7 +166,7 @@ elif "Lobster" in tool_mode:
     middle_spine_len = 2 * np.tan(np.radians(miter_angle)) * (radius + pipe_od/2)
     middle_throat_len = 2 * np.tan(np.radians(miter_angle)) * (radius - pipe_od/2)
     
-    # End Piece Lengths (User Defined usually, but we give min required)
+    # End Piece Lengths
     min_end = tangent_len + 1.0 # Add 1 inch for safety
 
     st.divider()
@@ -166,7 +181,6 @@ elif "Lobster" in tool_mode:
     
     # Draw a simplified segment diagram
     fig, ax = plt.subplots(figsize=(6, 2))
-    # Draw Trapazoid representing a segment
     p = patches.Polygon([
         [0, 0], 
         [middle_spine_len, 0], 
@@ -199,7 +213,6 @@ elif "Miter" in tool_mode:
         cut_angle = st.number_input("Cut Angle", 1.0, 89.0, 45.0)
 
     # Simple Miter Math
-    # Height of cut = tan(angle) * Diameter
     cut_height = np.tan(np.radians(cut_angle)) * pipe_od
     
     st.metric("Cutback Measurement", f"{round(cut_height, 3)}\"")

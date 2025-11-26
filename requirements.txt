@@ -2,4 +2,7 @@ streamlit
 numpy
 pandas
 matplotlib
+plotly
 Pillow
+requests
+streamlit-lottie

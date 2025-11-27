@@ -10,7 +10,7 @@ import requests
 from streamlit_lottie import st_lottie
 import math
 
-# --- 1. THE DATABASE ---
+# --- 1. THE DATABASE (Expanded to 40") ---
 pipe_schedule = {
     "Custom Size": 0.0, 
     "1/8": 0.405, "1/4": 0.540, "3/8": 0.675, "1/2": 0.840,
@@ -18,7 +18,9 @@ pipe_schedule = {
     "2": 2.375, "2-1/2": 2.875, "3": 3.500, "3-1/2": 4.000,
     "4": 4.500, "5": 5.563, "6": 6.625, "8": 8.625,
     "10": 10.750, "12": 12.750, "14": 14.000, "16": 16.000,
-    "18": 18.000, "20": 20.000, "24": 24.000
+    "18": 18.000, "20": 20.000, "24": 24.000,
+    "26": 26.000, "28": 28.000, "30": 30.000, "32": 32.000,
+    "34": 34.000, "36": 36.000, "40": 40.000
 }
 all_sizes = list(pipe_schedule.keys())
 
@@ -63,79 +65,52 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- STENCIL GENERATOR (PRO HARDWARE MODE) ---
+# --- STENCIL GENERATOR ---
 def generate_stencil_tape(circumference_inches, y_vals, tape_width_inch):
-    DPI = 203 # Standard Thermal DPI
-    
+    DPI = 203 
     img_width = int((circumference_inches + 0.1) * DPI)
     img_height = int(tape_width_inch * DPI)
-    
-    # SAFETY MARGIN (PADDING)
-    # We move the curve UP by 0.25 inches so it doesn't hit the bottom edge
     padding_inch = 0.25
     padding_px = int(padding_inch * DPI)
     
     img = Image.new('RGB', (img_width, img_height), color='white')
     d = ImageDraw.Draw(img)
     
-    # 1. Draw The Base Line (The Reference)
-    # This is where the user aligns the sticker to their pipe mark
+    # Base Line
     base_y_px = img_height - padding_px
     d.line([0, base_y_px, img_width, base_y_px], fill="red", width=2)
     d.text((10, base_y_px + 5), "ALIGN RED LINE TO PIPE RING", fill="red")
     
-    # 2. Draw The Cut Curve
+    # Cut Curve
     points = []
     x_continuous = np.linspace(0, circumference_inches, len(y_vals))
-    
     for i in range(len(y_vals)):
         px_x = int(x_continuous[i] * DPI)
-        
-        # Calculate Y position
-        # Start at Base Line (base_y_px) and go UP (subtract pixels)
         cut_height_px = int(y_vals[i] * DPI)
         px_y = base_y_px - cut_height_px
-        
-        # Clip to top of image if curve is too tall
         if px_y < 0: px_y = 0
-            
         points.append((px_x, px_y))
     
-    # Draw Thick Black Cut Line
     d.line(points, fill="black", width=6)
-    
-    # 3. Add Hatching/Markers for Waste Side
     step = 60
     for i in range(0, len(points), step):
         x, y = points[i]
-        # Only draw X if there is room above the line (Waste side)
-        if y > 20: 
-            d.text((x, y - 30), "X", fill="black")
-            
+        if y > 20: d.text((x, y - 30), "X", fill="black")
     return img
 
 # --- VISUAL HELPERS ---
 def draw_smart_tape_guide():
     fig, ax = plt.subplots(figsize=(6, 3))
-    # Pipe
     rect = patches.Rectangle((0, 0), 6, 3, linewidth=2, edgecolor='#0e3c61', facecolor='#e3f2fd')
     ax.add_patch(rect)
     ax.text(3, 1.5, "PIPE", ha='center', color='#0e3c61', alpha=0.2, fontweight='bold', fontsize=20)
-    
-    # The Wide Sticker
     rect_tape = patches.Rectangle((0, 0.2), 6, 2.0, linewidth=1, edgecolor='black', facecolor='#fff9c4', alpha=0.9)
     ax.add_patch(rect_tape)
-    
-    # The Padding Visual
     ax.plot([0, 6], [0.5, 0.5], color='red', linestyle='--', linewidth=1)
     ax.text(0.2, 0.4, "Red Base Line", color='red', fontsize=7)
-    
-    # The Curve
-    x = np.linspace(0, 6, 100)
-    y = 0.5 * np.sin(x) + 0.5 # Start curve from Base Line
+    x = np.linspace(0, 6, 100); y = 0.5 * np.sin(x) + 0.5 
     ax.plot(x, y, color='black', linewidth=3)
     ax.text(1, 1.2, "CUT HERE", color='black', fontsize=8, fontweight='bold')
-    
     ax.text(3, -0.3, "One Strip. Perfect Fit.", ha='center', fontsize=10, fontweight='bold', color='#0e3c61')
     ax.set_xlim(-0.5, 6.5); ax.set_ylim(-0.5, 3.5); ax.axis('off')
     return fig
@@ -226,12 +201,7 @@ if st.session_state.step == 1:
         if lottie_measure: st_lottie(lottie_measure, height=120, key="intro_anim")
         else: st.image("https://cdn-icons-png.flaticon.com/512/2942/2942076.png", width=100)
     with col_b:
-        st.markdown("""
-        <div class="hero-box">
-            <b>Stop Guessing. Start Cutting.</b><br>
-            Calculate precise industrial cuts for <b>Pipe (ID)</b> or <b>Tube (OD)</b> in seconds.
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("""<div class="hero-box"><b>Stop Guessing. Start Cutting.</b><br>Calculate precise industrial cuts for <b>Pipe (ID)</b> or <b>Tube (OD)</b> in seconds.</div>""", unsafe_allow_html=True)
     
     c1, c2 = st.columns(2)
     with c1:
@@ -246,11 +216,7 @@ if st.session_state.step == 1:
         st.caption("✅ **The Manual**")
     st.divider()
     with st.expander("🤔 Knowledge Base", expanded=False):
-        st.markdown("""
-        <div class="qa-box"><div class="qa-q">Q: Why 16 lines?</div>A: It's the "Goldilocks" curve—smooth enough to fit tight, not too many to mark.</div>
-        <div class="qa-box"><div class="qa-q">Q: What is "Eccentric"?</div>A: Offset to the side (not centered).</div>
-        <div class="qa-box"><div class="qa-q">Q: How do I use the "Smart Tape"?</div>A: Use any cheap Bluetooth thermal printer. Save the image in the 'Smart Tape' tab, print it, wrap it around the pipe. The ticks are your 16 points.</div>
-        """, unsafe_allow_html=True)
+        st.markdown("""<div class="qa-box"><div class="qa-q">Q: Why 16 lines?</div>A: It's the "Goldilocks" curve—smooth enough to fit tight, not too many to mark.</div><div class="qa-box"><div class="qa-q">Q: What is "Eccentric"?</div>A: Offset to the side (not centered).</div><div class="qa-box"><div class="qa-q">Q: How do I use the "Smart Tape"?</div>A: Use any cheap Bluetooth thermal printer. Save the image in the 'Smart Tape' tab, print it, wrap it around the pipe. The ticks are your 16 points.</div>""", unsafe_allow_html=True)
 
 # ==============================================================================
 # STEP 2: MEASURE

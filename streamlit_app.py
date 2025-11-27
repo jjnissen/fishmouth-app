@@ -60,89 +60,75 @@ st.markdown("""
         border-radius: 8px; border: 1px solid #eee;
     }
     .step-header { font-size: 24px; font-weight: 800; color: #0e3c61; margin-bottom: 15px; }
-    .qa-box {
-        background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #ddd;
-        color: #333 !important;
-    }
-    .qa-q { font-weight: bold; color: #d32f2f; margin-bottom: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- MOSAIC TAPE GENERATOR ---
-def generate_mosaic_strips(R, r, offset, angle, tape_width_inch):
+# --- STENCIL GENERATOR (PRO HARDWARE MODE) ---
+def generate_stencil_tape(circumference_inches, y_vals, tape_width_inch):
     DPI = 203 # Standard Thermal DPI
     
-    # 1. Generate High-Res Curve Data
-    theta = np.linspace(0, 2*np.pi, 1000)
-    term_sq = R**2 - (r * np.sin(theta) + offset)**2
-    term_sq[term_sq < 0] = 0
-    alpha_rad = np.radians(angle)
-    
-    if angle == 90: y_raw = np.sqrt(term_sq)
-    else: y_raw = (np.sqrt(term_sq)/np.sin(alpha_rad)) + (r * np.cos(theta)/np.tan(alpha_rad))
-    
-    y_vals = y_raw - np.min(y_raw)
-    circumference = 2 * np.pi * r
-    x_vals = np.linspace(0, circumference, 1000)
-    
-    # 2. Calculate Strips
-    max_y = np.max(y_vals)
-    num_strips = math.ceil(max_y / tape_width_inch)
-    if num_strips == 0: num_strips = 1
-    
-    strips = []
-    img_width = int((circumference + 0.1) * DPI)
+    img_width = int((circumference_inches + 0.1) * DPI)
     img_height = int(tape_width_inch * DPI)
     
-    for s in range(num_strips):
-        img = Image.new('RGB', (img_width, img_height), color='white')
-        d = ImageDraw.Draw(img)
+    img = Image.new('RGB', (img_width, img_height), color='white')
+    d = ImageDraw.Draw(img)
+    
+    # 1. Draw Alignment Line (Bottom Edge)
+    d.line([0, img_height-1, img_width, img_height-1], fill="blue", width=2)
+    d.text((10, img_height - 30), "ALIGN WITH PIPE END / BASE LINE", fill="blue")
+    
+    # 2. Draw The Cut Curve
+    points = []
+    x_continuous = np.linspace(0, circumference_inches, len(y_vals))
+    
+    for i in range(len(y_vals)):
+        px_x = int(x_continuous[i] * DPI)
         
-        y_min_phy = s * tape_width_inch
-        y_max_phy = (s + 1) * tape_width_inch
+        # Mapping: 
+        # Physical 0 = Bottom of tape (Image Height)
+        # Physical Height = Up from bottom (Subtract from Image Height)
         
-        # Guide Lines
-        label = f"STRIP #{s+1} (Bottom)" if s == 0 else f"STRIP #{s+1} (Stack on #{s})"
-        d.text((10, 5), label, fill="blue")
-        d.line([0, 0, img_width, 0], fill="blue", width=1) # Top edge for alignment
-        
-        # Draw Curve Segment
-        points_to_draw = []
-        for i in range(len(x_vals)):
-            phy_x = x_vals[i]; phy_y = y_vals[i]
-            if phy_y >= (y_min_phy - 0.05) and phy_y <= (y_max_phy + 0.05):
-                px_x = int(phy_x * DPI)
-                # Invert Y for image coords
-                rel_y = phy_y - y_min_phy
-                px_y = int(img_height - (rel_y * DPI))
-                points_to_draw.append((px_x, px_y))
-            else:
-                if len(points_to_draw) > 1: d.line(points_to_draw, fill="black", width=5)
-                points_to_draw = []
-        if len(points_to_draw) > 1: d.line(points_to_draw, fill="black", width=5)
-        strips.append(img)
-        
-    return strips, num_strips, max_y
+        # Ensure we don't draw off top of paper
+        phy_y = y_vals[i]
+        if phy_y > tape_width_inch: phy_y = tape_width_inch # Clip if too big
+            
+        px_y = int(img_height - (phy_y * DPI))
+        points.append((px_x, px_y))
+    
+    # Draw Thick Black Cut Line
+    d.line(points, fill="black", width=6)
+    
+    # 3. Add "Waste Side" hatching?
+    # Simple "X" marks on waste side
+    step = 50
+    for i in range(0, len(points), step):
+        x, y = points[i]
+        if y > 50: # If there is room above the line
+            d.text((x, y - 40), "X", fill="red") # Mark waste
+            
+    return img
 
 # --- VISUAL HELPERS ---
-def draw_mosaic_guide():
+def draw_smart_tape_guide():
     fig, ax = plt.subplots(figsize=(6, 3))
+    # Pipe
     rect = patches.Rectangle((0, 0), 6, 3, linewidth=2, edgecolor='#0e3c61', facecolor='#e3f2fd')
     ax.add_patch(rect)
     ax.text(3, 1.5, "PIPE", ha='center', color='#0e3c61', alpha=0.2, fontweight='bold', fontsize=20)
-    # Strip 1
-    rect_1 = patches.Rectangle((0, 0.5), 6, 0.5, linewidth=1, edgecolor='blue', facecolor='#fff9c4', alpha=0.9)
-    ax.add_patch(rect_1)
-    ax.text(3, 0.75, "STRIP #1 (Base)", ha='center', fontsize=8)
-    ax.plot([1, 2, 3], [0.5, 0.8, 1.0], color='black', linewidth=2)
-    # Strip 2
-    rect_2 = patches.Rectangle((0, 1.0), 6, 0.5, linewidth=1, edgecolor='blue', facecolor='#fff9c4', alpha=0.9)
-    ax.add_patch(rect_2)
-    ax.text(3, 1.25, "STRIP #2 (Stack on Top)", ha='center', fontsize=8)
-    ax.plot([3, 4, 5], [1.0, 1.2, 1.0], color='black', linewidth=2)
     
-    ax.text(3, 0.2, "Print Strips → Stack Them → Cut on Line", ha='center', fontsize=10, fontweight='bold', color='#0e3c61')
-    ax.set_xlim(-0.5, 6.5); ax.set_ylim(0, 3.0); ax.axis('off')
+    # The Wide Sticker
+    rect_tape = patches.Rectangle((0, 0.2), 6, 2.0, linewidth=1, edgecolor='black', facecolor='#fff9c4', alpha=0.9)
+    ax.add_patch(rect_tape)
+    ax.text(3, 1.2, "4-INCH WIDE STENCIL", ha='center', fontsize=10, fontweight='bold')
+    
+    # The Curve on the Sticker
+    x = np.linspace(0, 6, 100)
+    y = 0.5 * np.sin(x) + 1.2
+    ax.plot(x, y, color='black', linewidth=3)
+    ax.text(1, 1.8, "CUT HERE", color='black', fontsize=8, fontweight='bold')
+    
+    ax.text(3, -0.3, "One Strip. Perfect Fit.", ha='center', fontsize=10, fontweight='bold', color='#0e3c61')
+    ax.set_xlim(-0.5, 6.5); ax.set_ylim(-0.5, 3.5); ax.axis('off')
     return fig
 
 def draw_static_3d_wireframe(R, r, offset, angle_deg):
@@ -245,7 +231,7 @@ if st.session_state.step == 1:
         st.caption("✅ **The Manual**")
     st.divider()
     with st.expander("🤔 Knowledge Base", expanded=False):
-        st.markdown("""<div class="qa-box"><div class="qa-q">Q: Why 16 lines?</div>A: It's the "Goldilocks" curve—smooth enough to fit tight, not too many to mark.</div><div class="qa-box"><div class="qa-q">Q: How do I use the "Smart Tape"?</div>A: Use any cheap Bluetooth thermal printer. If the cut is deep, check <b>"Force Split Stencil"</b> to print stackable strips.</div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="qa-box"><div class="qa-q">Q: What printer do I need?</div>A: <b>Fishmouth Pro™ Hardware</b> (Coming Soon) or any 4-inch wide thermal printer (like Phomemo M04S).</div>""", unsafe_allow_html=True)
 
 # ==============================================================================
 # STEP 2: MEASURE
@@ -316,50 +302,46 @@ elif st.session_state.step == 3:
         else: y = (np.sqrt(term)/np.sin(alpha)) + (r*np.cos(theta)/np.tan(alpha))
         y_final = y - np.min(y)
 
-        res_tabs = st.tabs(["🖨️ Smart Tape", "🔨 Mark", "🌐 3D", "📏 Data", "📷 Camera"])
+        res_tabs = st.tabs(["🖨️ Stencil Print", "🔨 Mark", "🌐 3D", "📷 Camera"])
         
         with res_tabs[0]:
             c_anim, c_text = st.columns([1, 3])
             with c_anim: 
                 if lottie_print: st_lottie(lottie_print, height=80, key="print_anim")
-            with c_text: st.markdown(f"""<div class="instruction-box"><b>The Mosaic Stencil:</b><br>If curve is too deep, use the 'Split Stencil' box to create stackable strips.</div>""", unsafe_allow_html=True)
+            with c_text: st.markdown(f"""<div class="instruction-box"><b>The Fishmouth Pro Stencil:</b><br>Print this wide strip. Wrap it. Cut along the black line.</div>""", unsafe_allow_html=True)
             
-            st.pyplot(draw_mosaic_guide()) # GUIDE
+            st.pyplot(draw_smart_tape_guide()) 
             
-            # --- MOSAIC LOGIC ---
-            tape_width = st.select_slider("Printer Tape Width:", options=[0.5, 1.0, 1.5, 2.0, 4.0], value=0.5)
-            force_split = st.checkbox("Force Split Stencil (Multi-Strip)", help="Split the curve into multiple stackable strips")
+            # --- PRO HARDWARE MODE ---
+            # Default to 4-inch tape (assuming Pro hardware)
+            tape_width = st.select_slider("Printer Width:", options=[0.5, 1.0, 2.0, 4.0], value=4.0)
+            circumference = d['b_od'] * np.pi
             
-            strips, num_strips, max_h = generate_mosaic_strips(R, r, d['offset'], d['angle'], tape_width)
+            # Generate Single Stencil
+            tape_img = generate_stencil_tape(circumference, y_final, tape_width)
             
-            # Display strips
-            st.write(f"**Cut Height:** {round(max_h, 2)}\" | **Strips Required:** {num_strips}")
-            
-            for i, img in enumerate(strips):
-                st.write(f"**Strip #{i+1}**")
-                buf = io.BytesIO()
-                img.save(buf, format='PNG')
-                st.image(img, caption=f"Strip {i+1}")
-                st.download_button(f"📥 Download Strip {i+1}", buf.getvalue(), file_name=f"strip_{i+1}.png", mime="image/png")
+            buf = io.BytesIO()
+            tape_img.save(buf, format='PNG')
+            st.image(tape_img, caption=f"Full Length: {round(circumference, 2)}\" (Scroll right)")
+            st.download_button("📥 Download Stencil Image", buf.getvalue(), file_name="fishmouth_stencil.png", mime="image/png")
+            st.caption("Works with Phomemo M04S or Brother RuggedJet.")
 
         with res_tabs[1]:
             st.markdown(f"""<div class="instruction-box"><b>Manual Marking Guide:</b></div>""", unsafe_allow_html=True)
             st.pyplot(draw_markup_guide())
             st.write("1. **Base Line:** Draw a straight ring around your pipe.")
             st.write("2. **Divide:** Fold your pipe wrap to split the ring into 16 equal parts.")
-            st.write("3. **Measure:** Measure UP from the line using the 'Data' tab numbers.")
+            st.write("3. **Measure:** Measure UP from the line using the table below.")
+            
+            indices = np.linspace(0, 64, 17, dtype=int)
+            df = pd.DataFrame({"Line #": range(1, 18), "Decimal": [round(y_final[i], 3) for i in indices]})
+            st.dataframe(df, hide_index=True, use_container_width=True)
 
         with res_tabs[2]:
             st.write("##### 3D Visualization")
             st.pyplot(draw_static_3d_wireframe(R, r, d['offset'], d['angle']))
 
         with res_tabs[3]:
-            st.write("##### Measure UP from Base Line:")
-            indices = np.linspace(0, 64, 17, dtype=int)
-            df = pd.DataFrame({"Line #": range(1, 18), "Decimal": [round(y_final[i], 3) for i in indices], "Fraction (Approx)": [f"{int(y_final[i])} {int((y_final[i]%1)*16)}/16" for i in indices]})
-            st.dataframe(df, hide_index=True, use_container_width=True, height=600)
-
-        with res_tabs[4]:
             st.info("Take a photo of your marked pipe to verify the curve.")
             img_file = st.camera_input("Take Photo")
             if img_file:

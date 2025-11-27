@@ -70,12 +70,19 @@ def generate_stencil_tape(circumference_inches, y_vals, tape_width_inch):
     img_width = int((circumference_inches + 0.1) * DPI)
     img_height = int(tape_width_inch * DPI)
     
+    # SAFETY MARGIN (PADDING)
+    # We move the curve UP by 0.25 inches so it doesn't hit the bottom edge
+    padding_inch = 0.25
+    padding_px = int(padding_inch * DPI)
+    
     img = Image.new('RGB', (img_width, img_height), color='white')
     d = ImageDraw.Draw(img)
     
-    # 1. Draw Alignment Line (Bottom Edge)
-    d.line([0, img_height-1, img_width, img_height-1], fill="blue", width=2)
-    d.text((10, img_height - 30), "ALIGN WITH PIPE END / BASE LINE", fill="blue")
+    # 1. Draw The Base Line (The Reference)
+    # This is where the user aligns the sticker to their pipe mark
+    base_y_px = img_height - padding_px
+    d.line([0, base_y_px, img_width, base_y_px], fill="red", width=2)
+    d.text((10, base_y_px + 5), "ALIGN RED LINE TO PIPE RING", fill="red")
     
     # 2. Draw The Cut Curve
     points = []
@@ -84,27 +91,26 @@ def generate_stencil_tape(circumference_inches, y_vals, tape_width_inch):
     for i in range(len(y_vals)):
         px_x = int(x_continuous[i] * DPI)
         
-        # Mapping: 
-        # Physical 0 = Bottom of tape (Image Height)
-        # Physical Height = Up from bottom (Subtract from Image Height)
+        # Calculate Y position
+        # Start at Base Line (base_y_px) and go UP (subtract pixels)
+        cut_height_px = int(y_vals[i] * DPI)
+        px_y = base_y_px - cut_height_px
         
-        # Ensure we don't draw off top of paper
-        phy_y = y_vals[i]
-        if phy_y > tape_width_inch: phy_y = tape_width_inch # Clip if too big
+        # Clip to top of image if curve is too tall
+        if px_y < 0: px_y = 0
             
-        px_y = int(img_height - (phy_y * DPI))
         points.append((px_x, px_y))
     
     # Draw Thick Black Cut Line
     d.line(points, fill="black", width=6)
     
-    # 3. Add "Waste Side" hatching?
-    # Simple "X" marks on waste side
-    step = 50
+    # 3. Add Hatching/Markers for Waste Side
+    step = 60
     for i in range(0, len(points), step):
         x, y = points[i]
-        if y > 50: # If there is room above the line
-            d.text((x, y - 40), "X", fill="red") # Mark waste
+        # Only draw X if there is room above the line (Waste side)
+        if y > 20: 
+            d.text((x, y - 30), "X", fill="black")
             
     return img
 
@@ -119,13 +125,16 @@ def draw_smart_tape_guide():
     # The Wide Sticker
     rect_tape = patches.Rectangle((0, 0.2), 6, 2.0, linewidth=1, edgecolor='black', facecolor='#fff9c4', alpha=0.9)
     ax.add_patch(rect_tape)
-    ax.text(3, 1.2, "4-INCH WIDE STENCIL", ha='center', fontsize=10, fontweight='bold')
     
-    # The Curve on the Sticker
+    # The Padding Visual
+    ax.plot([0, 6], [0.5, 0.5], color='red', linestyle='--', linewidth=1)
+    ax.text(0.2, 0.4, "Red Base Line", color='red', fontsize=7)
+    
+    # The Curve
     x = np.linspace(0, 6, 100)
-    y = 0.5 * np.sin(x) + 1.2
+    y = 0.5 * np.sin(x) + 0.5 # Start curve from Base Line
     ax.plot(x, y, color='black', linewidth=3)
-    ax.text(1, 1.8, "CUT HERE", color='black', fontsize=8, fontweight='bold')
+    ax.text(1, 1.2, "CUT HERE", color='black', fontsize=8, fontweight='bold')
     
     ax.text(3, -0.3, "One Strip. Perfect Fit.", ha='center', fontsize=10, fontweight='bold', color='#0e3c61')
     ax.set_xlim(-0.5, 6.5); ax.set_ylim(-0.5, 3.5); ax.axis('off')
@@ -211,12 +220,18 @@ def plot_overlay_on_image(bg_image, x_vals, y_vals, scale, x_shift, y_shift):
 # ==============================================================================
 if st.session_state.step == 1:
     st.title("🐟 Fishmouth Pro")
+    
     col_a, col_b = st.columns([1, 2])
     with col_a:
         if lottie_measure: st_lottie(lottie_measure, height=120, key="intro_anim")
         else: st.image("https://cdn-icons-png.flaticon.com/512/2942/2942076.png", width=100)
     with col_b:
-        st.markdown("""<div class="hero-box"><b>Stop Guessing. Start Cutting.</b><br>Calculate precise industrial cuts for <b>Pipe (ID)</b> or <b>Tube (OD)</b> in seconds.</div>""", unsafe_allow_html=True)
+        st.markdown("""
+        <div class="hero-box">
+            <b>Stop Guessing. Start Cutting.</b><br>
+            Calculate precise industrial cuts for <b>Pipe (ID)</b> or <b>Tube (OD)</b> in seconds.
+        </div>
+        """, unsafe_allow_html=True)
     
     c1, c2 = st.columns(2)
     with c1:
@@ -231,7 +246,11 @@ if st.session_state.step == 1:
         st.caption("✅ **The Manual**")
     st.divider()
     with st.expander("🤔 Knowledge Base", expanded=False):
-        st.markdown("""<div class="qa-box"><div class="qa-q">Q: What printer do I need?</div>A: <b>Fishmouth Pro™ Hardware</b> (Coming Soon) or any 4-inch wide thermal printer (like Phomemo M04S).</div>""", unsafe_allow_html=True)
+        st.markdown("""
+        <div class="qa-box"><div class="qa-q">Q: Why 16 lines?</div>A: It's the "Goldilocks" curve—smooth enough to fit tight, not too many to mark.</div>
+        <div class="qa-box"><div class="qa-q">Q: What is "Eccentric"?</div>A: Offset to the side (not centered).</div>
+        <div class="qa-box"><div class="qa-q">Q: How do I use the "Smart Tape"?</div>A: Use any cheap Bluetooth thermal printer. Save the image in the 'Smart Tape' tab, print it, wrap it around the pipe. The ticks are your 16 points.</div>
+        """, unsafe_allow_html=True)
 
 # ==============================================================================
 # STEP 2: MEASURE
@@ -323,7 +342,7 @@ elif st.session_state.step == 3:
             buf = io.BytesIO()
             tape_img.save(buf, format='PNG')
             st.image(tape_img, caption=f"Full Length: {round(circumference, 2)}\" (Scroll right)")
-            st.download_button("📥 Download Stencil Image", buf.getvalue(), file_name="fishmouth_stencil.png", mime="image/png")
+            st.download_button("🖨️ Send to Printer App (Save Image)", buf.getvalue(), file_name="fishmouth_stencil.png", mime="image/png")
             st.caption("Works with Phomemo M04S or Brother RuggedJet.")
 
         with res_tabs[1]:
